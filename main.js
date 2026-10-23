@@ -24,6 +24,7 @@ import {
   createMatch, startEnd, currentThrower, adjudicateDelivery, finishEnd,
 } from './physics.js';
 import { chooseShot, makeRng } from './ai.js';
+import { rollRelease, applyRelease, describeRelease } from './release.js';
 import { TRACK, buildStaticSvg, buildDynamicSvg, weightReadout } from './track.js';
 
 // Reaching this line means the whole module graph loaded. index.html watches for
@@ -815,6 +816,7 @@ const G = {
   live: null,                 // {world, delivered, index} during a shot
   camHold: { x: 0, z: SHEET.teeZ },   // where the view stays once no stone is in flight
   shot: { aimDeg: 0, spin: 0, power: 0.7 },
+  release: null,              // this delivery's roll against release.js; null until the stone is thrown
   meter: { value: 0, t: 0, running: false },
   sweepUsed: 0, sweeping: false, sweepArmed: false,
   planView: false,              // Enter: a plan of the house, view only — never an input to the shot
@@ -874,6 +876,7 @@ function beginSetup() {
   // to the hack", and the camera does that when they do, in beginAim().
   G.planView = false;
   G.shot = { aimDeg: 0, spin: 0, power: CAL.drawPower };
+  G.release = null;          // the last delivery's roll belongs to that delivery
   G.sweepUsed = 0; G.sweeping = false;
   clearPreview();
   G.aiPlan = null;
@@ -927,6 +930,8 @@ function shotPrompt() {
       <div class="big">LINE <kbd>←</kbd><kbd>→</kbd> &nbsp;HANDLE <kbd>↑</kbd><kbd>↓</kbd> &nbsp;<kbd>Space</kbd> WEIGHT</div>
       <div class="sub">line &plusmn;${RULES.AIM_MAX_DEG}&deg; in ${RULES.AIM_STEP_DEG}&deg; steps, hold to repeat.<br>
         ${spinWord}. &plusmn;${maxSpin} turns are available and the projected arc grows with them.</div>
+      <div class="sub">the arc is the line you <i>call</i>. How close the stone comes to it is settled when you let go,
+        and the shot log says by how much.</div>
       ${planCue}
       ${guardCue}`);
   } else if (G.phase === 'POWER') {
@@ -944,13 +949,22 @@ let shotCounter = 0;
 function launchShot() {
   const m = G.match, t = currentThrower(m);
   const world = new StoneWorld(cloneStones(G.stones));
-  const v0 = launchSpeed(G.shot.power);
-  const aim = G.shot.aimDeg * DEG;
+  // The release is not the preview. A CPU delivery already carries the noise of its
+  // difficulty ladder, which ai.js put into the plan; a human delivery is rolled
+  // here, once, against the table in release.js — never while aiming, or the preview
+  // would change under the player's eye. G.shot keeps the intent that the preview,
+  // the miniature and the HUD show; only the stone leaving the hack carries the
+  // error. There is deliberately no error in the weight: the stone goes as far as
+  // the meter said it would.
+  G.release = isCPU(t) ? null : rollRelease(G.rng, G.shot);
+  const shot = G.release ? applyRelease(G.shot, G.release) : G.shot;
+  const v0 = launchSpeed(shot.power);
+  const aim = shot.aimDeg * DEG;
   const dir = { x: -Math.sin(aim), z: Math.cos(aim) };
   const id = `s${++shotCounter}-${t}-${m.end}-${m.throwIndex}`;
   const delivered = makeStone({
     id, team: t, x: 0, z: SHEET.hackZ, vx: dir.x * v0, vz: dir.z * v0,
-    spin: G.shot.spin, delivered: true,
+    spin: shot.spin, delivered: true,
   });
   world.stones.push(delivered);
   G.live = { world, delivered, index: world.stones.length - 1, steps: 0, started: false };
@@ -1052,7 +1066,11 @@ function settleShot() {
   // through the wait for the next delivery rather than falling back to a default.
   const scoring = scoreEnd(world.stones);
   const label = describeShot({ before, world, delivered, scored: scoring });
-  callout(verdict.guardZone ? 'TAKE-IN NOT ALLOWED' : label, 2400);
+  // A release the player could not see coming says so on the screen where the result
+  // is explained. A clean one stays silent: quiet is the right report for most shots,
+  // and a callout that apologises every third throw stops meaning anything.
+  const flub = G.release && G.release.tier !== 'good' ? ` — ${G.release.label}` : '';
+  callout((verdict.guardZone ? 'TAKE-IN NOT ALLOWED' : label) + flub, 2400);
 
   // Rule notes for the player: what happened and why.
   const rows = [];
@@ -1071,6 +1089,9 @@ function settleShot() {
     else rows.push(['position', `z ${delivered.z.toFixed(1)} m`]);
   }
   for (const o of world.outs) rows.push(['removed', `${TEAM_NAME[o.team]} — ${o.reason}`]);
+  // The row that explains the difference between the line you aimed and the line you
+  // got. Signed the same way the aim readout is signed, so it can be read against it.
+  if (G.release) rows.push(['release', describeRelease(G.release)]);
   rows.push(['travel', `${world.time.toFixed(1)} s · ${Math.round(G.sweepUsed * 10) / 10} s of brushing`]);
   telemetry(`<h4>SHOT LOG</h4>` + rows.map(r => `<div class="row"><span>${r[0]}</span><span>${r[1]}</span></div>`).join(''));
 

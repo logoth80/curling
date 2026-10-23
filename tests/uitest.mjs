@@ -7,6 +7,8 @@
  *   · the keyboard contract drifting beyond Space + the four arrows (+R on the
  *     game-over screen), which GAME_PROMPT.md forbids
  *   · the asset paths drifting away from the files the game expects
+ *   · the release roll moving out of the throw and into the aiming, which would
+ *     make the preview disagree with itself (group 2c)
  *
  *   node tests/uitest.mjs
  */
@@ -27,6 +29,14 @@ const check = (name, ok, detail = '') => {
   else { fail++; console.log(`  FAIL  ${name}${detail ? '  ::  ' + detail : ''}`); }
 };
 const group = t => console.log(`\n== ${t}`);
+
+/**
+ * One top-level function's source, braces balanced enough for this file's style.
+ * Proximity windows like "inside the next 1500 characters" go stale the moment a
+ * function gains a comment, and they say less than this does: the statement is in
+ * this function, wherever in it.
+ */
+const bodyOf = (name) => (js.match(new RegExp(`\\nfunction ${name}\\([^)]*\\)\\s*\\{[\\s\\S]*?\\n\\}`)) || [''])[0];
 
 group('1. Every DOM id main.js touches exists in index.html');
 {
@@ -63,7 +73,7 @@ group('2. Keyboard contract: Space + arrows, plus Enter as a view only (R on gam
     enterReads.length >= 3 && enterReads.every(t => /^G\.planView = !G\.planView;/.test(t)),
     `${enterReads.length} reads: ${enterReads.join(' | ') || 'none'}`);
   check('the plan view is closed when a delivery starts, so the shot is watched from the ice',
-    /function launchShot\(\)[\s\S]{0,1500}?G\.planView = false;[\s\S]{0,300}?setCameraMode\('track'\)/.test(js));
+    /G\.planView = false;[\s\S]{0,300}?setCameraMode\('track'\)/.test(bodyOf('launchShot')));
 
   // The brief's state machine has a separate SPIN phase. The game folds line and
   // handle into one on purpose: a skip chooses them together, and the projected
@@ -166,9 +176,53 @@ group('2b. The view stays with the play until someone asks for the hack');
     /function applyCPUPlan\(\)[\s\S]{0,600}?setCameraMode\('hack'\)/.test(js) &&
     /G\.phase = 'WINDUP';[\s\S]{0,200}?setCameraMode\('hack'\)/.test(js));
   check('the flight still hands the camera to the tracking view',
-    /function launchShot\(\)[\s\S]{0,1500}?setCameraMode\('track'\)/.test(js));
+    /setCameraMode\('track'\)/.test(bodyOf('launchShot')));
   check('the end summary is allowed its scoring diagram view',
     /setCameraMode\('skip'\)/.test(js));
+}
+
+group('2c. The release belongs to the throw, not to the aim');
+{
+  // The release roll is the one place where a player's delivery stops being a copy
+  // of the preview. That is a contract about *where* it happens, and the failure
+  // mode is invisible in Node — a roll made while aiming would make the preview
+  // shuffle under the player's eye, and a roll made twice would stack two errors on
+  // a CPU shot that already carries the noise of its difficulty ladder.
+  const releaseSrc = readFileSync(new URL('../release.js', import.meta.url), 'utf8');
+  const launch = bodyOf('launchShot'), preview = bodyOf('setPreviewFromShot');
+  const settle = bodyOf('settleShot'), setup = bodyOf('beginSetup');
+  const aiming = [bodyOf('beginAim'), bodyOf('nudgeAim'), bodyOf('stepSpin')].join('\n');
+  const rolls = (js.match(/rollRelease\(/g) || []).length;
+  const widgetCalls = (js.match(/updateTrackPrediction\(/g) || []).length - 1;   // minus its definition
+
+  check('the release is rolled in exactly one place in the whole game', rolls === 1, `${rolls} call sites`);
+  check('and that place is the release itself, inside launchShot',
+    /rollRelease\(/.test(launch) && /G\.release = /.test(launch),
+    (launch.match(/G\.release = [^\n]*/) || ['no roll statement in launchShot'])[0].trim());
+  check('never while aiming or stepping the handle, so the preview cannot change under the player\'s eye',
+    !/rollRelease|applyRelease|G\.release/.test(aiming), aiming.match(/.{0,30}(rollRelease|applyRelease|G\.release).{0,30}/)?.[0] || 'clean');
+  check('the preview keeps drawing the line that was asked for, at the preview weight',
+    /\{ \.\.\.G\.shot, power: G\.previewPower\(\) \}/.test(preview) && !/rollRelease|applyRelease|G\.release/.test(preview));
+  check('the intent survives the throw: launchShot reads G.shot but never writes it',
+    !/G\.shot(\.[A-Za-z]+)?\s*=[^=]/.test(launch) && /applyRelease\(G\.shot, G\.release\)/.test(launch),
+    launch.match(/G\.shot[^\n]{0,40}/g)?.slice(0, 4).join(' | '));
+  check('a CPU delivery is not rolled a second time on top of its own difficulty ladder',
+    /isCPU\(t\) \? null :/.test(launch));
+  check('a release the player could not see says so alongside the result, and a clean one stays silent',
+    /tier !== 'good'/.test(settle) && /G\.release\.label/.test(settle));
+  check('the shot log reports the line and the handle, in centimetres and handle levels',
+    /rows\.push\(\['release', describeRelease\(G\.release\)\]\)/.test(settle));
+  check('a roll belongs to one delivery: it is cleared when the next shot is set up',
+    /G\.release = null/.test(setup) && /G\.shot = \{/.test(setup));
+  check('the miniature is still fed only by the preview, never by a thrown stone',
+    widgetCalls === 1 && /function setPreviewFromShot[\s\S]*?updateTrackPrediction\(sim\);/.test(js),
+    `${widgetCalls} call sites`);
+  check('release.js stays pure — no THREE, no DOM, and it imports only the rules module',
+    !/from ['"]three|three@|\bdocument\.|\bwindow\.|requestAnimationFrame|Date\.now|performance\.now/.test(releaseSrc) &&
+    /^import \{[^}]*\} from '\.\/physics\.js';$/m.test(releaseSrc),
+    (releaseSrc.match(/^import .*?;/ms) || ['no import statement'])[0].replace(/\s+/g, ' '));
+  check('and it asks the rules module how far a weight runs rather than restating the stopping law',
+    /distanceForPower/.test(releaseSrc) && !/V_MAX|A_BASE|Math\.sqrt|2 \* a/.test(releaseSrc));
 }
 
 group('3. HUD values agree with the rules module');

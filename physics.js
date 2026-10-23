@@ -171,7 +171,12 @@ const R = SHEET.stoneRadius;
 // Stone + world
 // ---------------------------------------------------------------------------
 
-/** @returns a new stone record. `spin` is one of RULES.SPIN_LEVELS (-3..+3). */
+/**
+ * @returns a new stone record. `spin` is a handle load: the selector only offers
+ * whole levels (RULES.SPIN_LEVELS, -3..+3), but a delivered stone may carry a
+ * fractional one because the release of a real throw is not exact. Curl is linear
+ * in this value either way, and it never leaves that range.
+ */
 export function makeStone({ id, team, x = 0, z = 0, vx = 0, vz = 0, spin = 0, delivered = false }) {
   return { id, team, x, z, vx, vz, spin, radius: R, delivered, removed: false, outReason: null };
 }
@@ -322,6 +327,19 @@ export function launchSpeed(power) { return Math.max(0, Math.min(1, power)) * PH
 export function powerForDistance(dist, swept = false) {
   const a = swept ? PHYS.A_SWEEP : PHYS.A_BASE;
   return Math.sqrt(2 * a * Math.max(0.05, dist)) / PHYS.V_MAX;
+}
+
+/**
+ * The same law read the other way: how far this weight carries a stone with
+ * nothing in front of it. `release.js` needs it because a release error belongs to
+ * the throw being thrown — five centimetres at the end of a 20 m raise is a
+ * different mistake from five centimetres at the end of a 30 m draw — and because
+ * the unbrushed distance is the line the preview and the miniature show.
+ */
+export function distanceForPower(power, swept = false) {
+  const a = swept ? PHYS.A_SWEEP : PHYS.A_BASE;
+  const v = launchSpeed(power);
+  return (v * v) / (2 * a);
 }
 
 /**

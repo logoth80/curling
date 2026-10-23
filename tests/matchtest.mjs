@@ -13,6 +13,7 @@ import {
   finishEnd, scoreEnd, powerForDistance, distanceToButton, inHouse, inFreeGuardZone,
 } from '../physics.js';
 import { chooseShot, makeRng, DIFFICULTY, solveAim } from '../ai.js';
+import { RELEASE_TIERS, angleForOffset } from '../release.js';
 
 let pass = 0, fail = 0;
 function check(name, ok, detail = '') {
@@ -20,6 +21,15 @@ function check(name, ok, detail = '') {
   else { fail++; console.log(`  FAIL  ${name}${detail ? '  ::  ' + detail : ''}`); }
 }
 function group(t) { console.log(`\n== ${t}`); }
+
+/**
+ * The scripted human's two levels of competence, named rather than inline so that
+ * group 9 can hold them against the game's own release table. A stand-in that is
+ * sharper than the game lets a player be would make every win count in this file a
+ * claim about a superhuman, not about "a determined human".
+ */
+const HUMAN_SCRIPT = { a: 0.20, p: 0.020 };    // has practised: lands inside a player's spread
+const HUMAN_ROUGH = { a: 0.55, p: 0.055 };     // has not
 
 /**
  * Play one full match headlessly.
@@ -52,7 +62,7 @@ function playMatch({ seed = 1, policyA = 'cpu:normal', policyB = 'cpu:normal', v
       // it sets its weight *knowing* it will sweep the last stretch: the
       // delivery is replayed at the swept weight until it stops on target, which
       // is exactly what the in-game preview lets a player do.
-      const skill = policy.split(':')[1] === 'rough' ? { a: 0.55, p: 0.055 } : { a: 0.20, p: 0.020 };
+      const skill = policy.split(':')[1] === 'rough' ? HUMAN_ROUGH : HUMAN_SCRIPT;
       const jit = (n) => (rng() * 2 - 1) * n;
       const opp = otherTeam(team);
       const counters = stones.filter(s => s.team === opp && inHouse(s))
@@ -349,7 +359,39 @@ group('8. Scoring is recomputed independently at the end of every end');
   check('a stone outside the 12-foot ring is not counted', !r.counting.includes('y2'));
   check('closest-of-each-colour markers are available for the overlay',
     !!r.best.A && !!r.best.B && r.best.A.d < r.best.B.d);
-  void distanceToButton; void inHouse; void inFreeGuardZone; void StoneWorld; void powerForDistance; void DIFFICULTY;
+  void distanceToButton; void inHouse; void inFreeGuardZone; void StoneWorld; void powerForDistance;
+}
+
+group('9. The two ways this game makes a delivery imperfect still tell one story');
+{
+  // A human delivery is made imprecise by release.js, a CPU delivery by DIFFICULTY
+  // in ai.js. Neither module knows the other exists, so this is the only place that
+  // notices if they drift apart. The acceptance item "NORMAL must lose to a
+  // determined human sometimes" depends on the human being the more accurate of the
+  // two, and nothing above would fail if that stopped being true.
+  const LINE = SHEET.teeZ - SHEET.hackZ;              // 30 m — the standard draw
+  const DEG = Math.PI / 180;
+  const total = RELEASE_TIERS.reduce((s, t) => s + t.weight, 0);
+  const worstHuman = Math.max(...RELEASE_TIERS.map(t => angleForOffset(t.line, LINE)));
+  check('the worst line a human release can produce is still tighter than a NORMAL CPU throws',
+    worstHuman < DIFFICULTY.normal.aimDeg,
+    `human worst ±${worstHuman.toFixed(3)}° at 30 m against CPU ±${DIFFICULTY.normal.aimDeg}°`);
+
+  const meanHuman = RELEASE_TIERS.reduce((s, t) => s + (t.weight / total) * (t.line / 2), 0);  // E|offset| of a uniform ± span
+  const meanCpu = Math.tan(DIFFICULTY.normal.aimDeg * DEG) * LINE;
+  check('and on average a player line is several times sharper, which is the part of the shot the CPU is bad at',
+    meanHuman * 4 < meanCpu, `human mean ${meanHuman.toFixed(4)} m against NORMAL mean ${meanCpu.toFixed(4)} m at 30 m`);
+
+  check('the release table carries no weight term: a human gets exactly the distance the meter stopped at, and a CPU does not',
+    RELEASE_TIERS.every(t => !('power' in t)) && DIFFICULTY.normal.power > 0,
+    `CPU weight noise ±${DIFFICULTY.normal.power} of full power`);
+
+  check('the scripted human in this file is no more accurate than the game lets a player be, so the win counts above describe a player',
+    HUMAN_SCRIPT.a >= worstHuman,
+    `script aim ±${HUMAN_SCRIPT.a}° against the game's worst ±${worstHuman.toFixed(3)}°`);
+  check('and the rough stand-in is worse in the same shape, not in a different one',
+    HUMAN_ROUGH.a > HUMAN_SCRIPT.a && HUMAN_ROUGH.p > HUMAN_SCRIPT.p,
+    `rough ±${HUMAN_ROUGH.a}°/±${HUMAN_ROUGH.p} against practised ±${HUMAN_SCRIPT.a}°/±${HUMAN_SCRIPT.p}`);
 }
 
 console.log(`\n${fail === 0 ? 'ALL OK' : 'FAILURES'} — ${pass} passed, ${fail} failed`);

@@ -219,6 +219,7 @@ main.js         rendering, cameras, input, phases, HUD — the only file that to
 physics.js      pure logic: fixed-step world, rules, scoring, shot evaluation
 track.js        pure logic: the weight miniature (geometry + SVG text), derived from SHEET
 ai.js           candidate shots -> forward sim with physics.js -> endgame-weighted score
+release.js      pure logic: the release-quality table a human delivery is rolled against
 serve.mjs       dev server: serves this folder over http:// and opens the page — not part of the game
 play.cmd        the same thing as a double-click on Windows
 assets/         six GLB assets + generated textures (assets/tex)
@@ -226,7 +227,8 @@ blender/        the authoring and visual-gate scripts, plus their reports
 tests/          four Node suites, plus svg_peek.py to look at the widget
 ```
 
-`physics.js`, `track.js` and `ai.js` deliberately import nothing — no THREE, no DOM.
+`physics.js`, `track.js`, `ai.js` and `release.js` deliberately import nothing outside
+this folder — no THREE, no DOM.
 That is what makes the whole game verifiable from Node, and
 [tests/uitest.mjs](tests/uitest.mjs) fails the suite if a forbidden constant
 creeps into the renderer.
@@ -234,9 +236,9 @@ creeps into the renderer.
 ## Tests
 
 ```sh
-node tests/selftest.mjs    # 48 checks — physics, calibration, rules, scoring, the weight meter, the brushing model
-node tests/matchtest.mjs   # 24 checks — full matches, CPU strength ladder, timing
-node tests/uitest.mjs      # 87 checks — DOM ids, key map, phases, cameras, the weight miniature, end resets, asset paths, import boundary
+node tests/selftest.mjs    # 75 checks — physics, calibration, rules, scoring, the weight meter, the brushing model, the release table
+node tests/matchtest.mjs   # 29 checks — full matches, CPU strength ladder, timing, the two error models kept honest
+node tests/uitest.mjs      # 99 checks — DOM ids, key map, phases, cameras, the weight miniature, where a release may be rolled, end resets, asset paths, import boundary
 node tests/glbtest.mjs     # 96 checks — the shipped GLBs against the game's coordinate contract and camera framing
 ```
 
@@ -251,8 +253,16 @@ All four pass. Highlights of what they pin down:
   is worth +5.2% and the last 45% +1.7%, and that ordering is asserted rather than
   assumed (see [brushing](#brushing-is-for-the-whole-path-and-it-is-weak)).
 - The dashed preview arc, the executed shot and the weight miniature are the same
-  simulation: sampled endpoint error `0.000 m` over 210 samples, and the miniature's
-  path ends on the pixel where `simulateDelivery` left the stone.
+  simulation *for the same inputs*: sampled endpoint error `0.000 m` over 210 samples,
+  and the miniature's path ends on the pixel where `simulateDelivery` left the stone.
+  A human delivery is then separated from that line by exactly one thing, the release
+  roll described in [A delivery is a release](#a-delivery-is-a-release-the-called-line-vs-the-thrown-one).
+- That roll is tested the same way: the four tiers and their exact spans, the
+  frequencies over 40 000 draws of one fixed seed, no draw ever past its own tier,
+  the angle conversions quoted above (`0.0955°`, `0.1910°`), the *measured* result on
+  the ice — `0.0499 m` and `0.0999 m` of line error at 30 m and at 20 m, with and
+  without a handle turn — `0.244 m` for a bad release whose two errors agree, and that
+  the same seed replays the same release and the same rest position.
 - The widget's landmarks are derived, not drawn: the hog marker sits at
   `hogFarZ - hackZ + stoneRadius`, the tee marker 30 m from the hack, the 12-foot
   ring at 1.83 m, and the "too light" shading stops exactly at the hog line.
@@ -497,6 +507,77 @@ nothing here is accidental:
     that nothing in the shot simulation looks at it. It is here because what a skip
     actually does between stones is *read the ice*, and the earlier design cut that
     off: the moment the stones stopped, the view moved to the hack.
+
+### A delivery is a release: the called line vs the thrown one
+
+The interface lets a player set three numbers exactly. If the stone obeyed all three
+every time, the preview would be a promise instead of a call, aiming would have no
+consequence beyond the number selected, and the only imprecision in the game would be
+the CPU's. So a human delivery carries one roll, made once, at the moment of release —
+in [release.js](release.js), a pure module, which is why the whole table is testable
+from Node.
+
+| release | weight | handle error | line error at the end of this throw |
+|---|---|---|---|
+| good | 50 | ±0.10 of a turn | none |
+| ok | 25 | ±0.10 | ±5 cm |
+| mediocre | 12 | ±0.20 | ±5 cm |
+| bad | 12 | ±0.20 | ±10 cm |
+
+Those weights sum to 99, so they are used as *weights* and normalised rather than read
+as percentages: the ratio is exactly the one above and no unclaimed 1% lands somewhere.
+
+**The centimetres, as an angle.** physics.js states its own sensitivity in `solveAim`:
+`dx/daim ≈ −run length`. The angle for a wanted offset is therefore
+`atan(offset / run)`, and at the standard line — a 30 m draw, hack to button — 5 cm is
+**0.0955°** and 10 cm is **0.1910°**. On a raise the same tier is larger in degrees and
+identical in centimetres: 0.1432° at 20 m is the same 5 cm at the end of *that* line.
+The `run` used is the unbrushed distance of the weight being thrown
+(`distanceForPower`, the inverse of `powerForDistance`), because that is the line the
+preview and the miniature draw. That the model delivers what it promises is measured
+rather than claimed in prose: at 30 m and at 20 m, with and without a ±2 turn, a 5 cm
+error moves the resting point by `0.0499 m` and a 10 cm error by `0.0999 m`.
+
+**The handle half is bigger than it looks.** Curl is linear in `spin`, and one handle
+level is worth 0.725 m of arc at draw weight, so ±0.1 of handle is about 7 cm of line
+and ±0.2 about 14 cm. Both halves of the table in the same direction put a *bad*
+release **0.244 m** off the line at a draw; in opposite directions they very nearly
+cancel — `0.045 m`. That is not a defect in the model, it is what a release is:
+sometimes the two errors are the same error. The handle error is capped at the
+calibrated range rather than left to run past it, because the curl law is stated *per
+turn*: a stone already asked for ±3 can therefore only be delivered with less handle
+than the player asked for, which is also the honest direction for a maximum turn.
+
+**What it never touches is the weight.** No tier has a power term; the stone goes
+exactly as far as the meter stopped. That is deliberate — weight is the one part of the
+shot the interface can measure *for* you — and the brief's acceptance item 2 asks only
+that the arc "roughly predicts" the path, which a 10 cm worst case at 30 m does.
+
+**This is not the CPU's error model, and the two are checked against each other.** A
+CPU throw is made imprecise by `DIFFICULTY` in ai.js — aim noise, weight noise, a
+chance of the wrong handle — which models a plan chosen as well as a stone thrown.
+[tests/matchtest.mjs](tests/matchtest.mjs) group 9 keeps them honest about each other:
+the worst line a human release can produce (0.191°) is still tighter than a NORMAL
+CPU's aim noise (±0.24°), the average human line error is about eight times smaller
+than NORMAL's, and the weight noise belongs to the CPU alone. Without that check,
+"NORMAL loses to a determined human" would quietly become a claim about a superhuman
+stand-in.
+
+**Determinism is not lost.** The world still has no random term, and the fixed-step
+simulation still replays bit for bit — that is asserted, not assumed. The roll comes
+from the match's seeded generator and draws in a fixed order (tier, then line, then
+handle), so a seed replays a match including its releases. What is random is the input;
+the ice is not.
+
+**What the player sees.** The preview, the miniature and the HUD keep showing the shot
+that was *called*: `G.shot` is never written at the release, and the stone that leaves
+the hack is the one carrying the difference. A release that was not clean says so next
+to the result (`— slightly off`); a clean one says nothing, because an apology every
+third throw stops meaning anything. The SHOT LOG gains a row in the same signed units
+the HUD uses — `loose release · handle −0.14 · line +6.2 cm`.
+[tests/uitest.mjs](tests/uitest.mjs) group 2c pins *where* the roll may happen: one
+call site in the whole game, inside `launchShot`, never in the aiming code, never a
+second time on a CPU delivery, and never while the miniature is being fed.
 
 ## Known limitations
 

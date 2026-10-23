@@ -2,18 +2,22 @@
  * tests/selftest.mjs — node-run verification of the GAME_PROMPT.md acceptance
  * checklist items that are pure logic: physics calibration, curl direction,
  * sweeping, takeouts, scoring (counters / blank / biter), hog + back-line
- * removal, and the adapted free-guard-zone rule.
+ * removal, the adapted free-guard-zone rule, and the release roll that separates
+ * a thrown stone from a called one.
  *
  *   node tests/selftest.mjs
  */
 import {
   SHEET, PHYS, RULES, StoneWorld, makeStone, cloneStones,
-  simulateDelivery, powerForDistance, launchSpeed, distanceToButton, meterTravel,
+  simulateDelivery, powerForDistance, distanceForPower, launchSpeed, distanceToButton, meterTravel,
   scoreEnd, hogViolation, inHouse, inFreeGuardZone, guardZoneViolation,
 } from '../physics.js';
+import { makeRng } from '../ai.js';
+import { RELEASE_TIERS, rollRelease, applyRelease, angleForOffset } from '../release.js';
 
 let pass = 0, fail = 0;
 const near = (a, b, tol) => Math.abs(a - b) <= tol;
+const DEG = Math.PI / 180;
 
 function check(name, ok, detail = '') {
   if (ok) { pass++; console.log(`  PASS  ${name}${detail ? '  ::  ' + detail : ''}`); }
@@ -241,6 +245,19 @@ group('8. Power model helpers');
   const p1 = stop(0.5), p2 = stop(0.6);
   check('stopping distance scales with power^2 (s = v0^2/2a)', p2 - SHEET.hackZ > (p1 - SHEET.hackZ) * 1.25,
     `z(50%)=${p1.toFixed(1)} z(60%)=${p2.toFixed(1)}`);
+  // The same law read the other way, which is what release.js asks a weight in
+  // order to size a hand error against the line being thrown. It has to agree with
+  // the forward one to the last decimal, or the roll would be sized against a
+  // distance the stone does not actually travel.
+  let worstRound = 0;
+  for (const d of [RULES.POWER_MIN_TRAVEL, 20, 30, RULES.POWER_MAX_TRAVEL]) {
+    worstRound = Math.max(worstRound, Math.abs(distanceForPower(powerForDistance(d)) - d));
+  }
+  check('distanceForPower inverts powerForDistance across the whole selectable range',
+    worstRound < 1e-9, `worst error ${worstRound.toExponential(1)} m`);
+  check('and it reports the unbrushed run by default, because that is the line the preview shows',
+    distanceForPower(p) < distanceForPower(p, true),
+    `unbrushed ${distanceForPower(p).toFixed(2)} m, brushed ${distanceForPower(p, true).toFixed(2)} m`);
   void distanceToButton;
 }
 
@@ -277,6 +294,118 @@ group('9. The weight meter sweeps distance at a constant rate (the control the p
   check('the heaviest selectable weight carries through the house',
     heavy.delivered.z > SHEET.backLineZ && heavy.world.stones[0].removed,
     `${hi} m of travel -> z=${heavy.delivered.z.toFixed(2)}, out=${heavy.delivered.outReason}, power=${powerForDistance(hi).toFixed(2)}`);
+}
+
+// ---------------------------------------------------------------------------
+group('10. The release roll: the shot called vs the stone thrown (release.js)');
+{
+  const LINE = SHEET.teeZ - SHEET.hackZ;   // 30 m, hack to button — the line the rule is quoted against
+  const draw = powerForDistance(LINE);
+  const shape = JSON.stringify(RELEASE_TIERS.map(t => [t.name, t.weight, t.spin, t.line]));
+
+  check('the table is the one the game asks for: 50 good, 25 ok, 12 mediocre, 12 bad, with those spans',
+    shape === JSON.stringify([
+      ['good', 50, 0.10, 0], ['ok', 25, 0.10, 0.05],
+      ['mediocre', 12, 0.20, 0.05], ['bad', 12, 0.20, 0.10],
+    ]), shape);
+
+  // Frequencies and bounds over a fixed seed, so a failure is reproducible.
+  const rng = makeRng(20261023), N = 40000;
+  const total = RELEASE_TIERS.reduce((s, t) => s + t.weight, 0);
+  const counts = {}, overSpan = [], dirtyClean = [];
+  for (let i = 0; i < N; i++) {
+    const r = rollRelease(rng, { power: draw });
+    counts[r.tier] = (counts[r.tier] || 0) + 1;
+    const t = RELEASE_TIERS.find(x => x.name === r.tier);
+    if (Math.abs(r.offCm) / 100 > t.line + 1e-12 || Math.abs(r.spinErr) > t.spin + 1e-12) {
+      overSpan.push(`${r.tier} line ${r.offCm.toFixed(1)} cm handle ${r.spinErr.toFixed(3)}`);
+    }
+    if (r.tier === 'good' && (r.offCm !== 0 || r.aimDegErr !== 0)) dirtyClean.push(r.offCm);
+  }
+  const freq = RELEASE_TIERS.map(t =>
+    `${t.name} ${(100 * (counts[t.name] || 0) / N).toFixed(2)}% vs ${t.weight}/${total} = ${(100 * t.weight / total).toFixed(2)}%`);
+  check('the draws land on the table, read as weights and normalised rather than as percentages',
+    RELEASE_TIERS.every(t => Math.abs(100 * (counts[t.name] || 0) / N - 100 * t.weight / total) < 1),
+    freq.join('  '));
+  check('no draw goes past its own tier', overSpan.length === 0, overSpan.slice(0, 3).join(' | '));
+  check('a good release is a clean line, not a small one: exactly zero, every time', dirtyClean.length === 0,
+    `${dirtyClean.length} clean releases carried a line error`);
+
+  // What the centimetres become as an angle. physics.js states its own sensitivity
+  // in solveAim (dx/daim ~= -run length); these are the figures the README quotes.
+  const a5 = angleForOffset(0.05, LINE), a10 = angleForOffset(0.10, LINE);
+  check('five centimetres at the end of a 30 m draw is 0.095 degrees of line', near(a5, 0.0955, 5e-4), `${a5.toFixed(4)}°`);
+  check('ten centimetres at the end of a 30 m draw is 0.191 degrees of line', near(a10, 0.1910, 5e-4), `${a10.toFixed(4)}°`);
+  check('the conversion round-trips: tan(angle) times the run is the offset',
+    near(Math.tan(a5 * DEG) * LINE, 0.05, 1e-12), `${(Math.tan(a5 * DEG) * LINE).toFixed(6)} m`);
+  check('a shorter throw is sized against its own line, so it gets the same centimetres at its end',
+    near(Math.tan(angleForOffset(0.05, 20) * DEG) * 20, 0.05, 1e-12) && angleForOffset(0.05, 20) > a5,
+    `20 m needs ${angleForOffset(0.05, 20).toFixed(4)}° where 30 m needs ${a5.toFixed(4)}°`);
+
+  // And what that angle does on the ice — measured, not assumed.
+  const rest = (shot) => {
+    const s = simulateDelivery([], { team: 'A', ...shot }, { id: 'S' }).delivered;
+    return { x: s.x, z: s.z };
+  };
+  for (const run of [LINE, 20]) {
+    for (const spin of [0, 2]) {
+      for (const cm of [0.05, 0.10]) {
+        const base = { aimDeg: 0, spin, power: powerForDistance(run) };
+        const b = rest(base);
+        const r = {
+          tier: 'bad', label: '', runM: run, offCm: cm * 100, spinErr: 0,
+          aimDegErr: angleForOffset(cm, distanceForPower(powerForDistance(run))),
+        };
+        const g = rest(applyRelease(base, r));
+        const moved = Math.hypot(g.x - b.x, g.z - b.z);
+        check(`a ${Math.round(cm * 100)} cm line error puts the stone that far off at ${Math.round(run)} m with handle ${spin}`,
+          near(moved, cm, 0.004),
+          `moved ${moved.toFixed(4)} m at ${r.aimDegErr.toFixed(4)}° (base rest x ${b.x.toFixed(3)} z ${b.z.toFixed(3)})`);
+      }
+    }
+  }
+
+  // The handle half of the table, in the units the game already calibrates curl in.
+  const straight = rest({ aimDeg: 0, spin: 0, power: draw });
+  const perLevel = Math.abs(rest({ aimDeg: 0, spin: 2, power: draw }).x - straight.x) / 2;
+  const h1 = rest(applyRelease({ aimDeg: 0, spin: 0, power: draw },
+    { tier: 'ok', label: '', runM: LINE, offCm: 0, spinErr: 0.1, aimDegErr: 0 }));
+  check('a tenth of a handle is a tenth of the measured arc per level — no new constant enters the world',
+    near(Math.abs(h1.x - straight.x), 0.1 * perLevel, 0.004),
+    `handle +0.1 = ${Math.abs(h1.x - straight.x).toFixed(3)} m, one level = ${perLevel.toFixed(3)} m`);
+  // Both halves at once, measured against the same line thrown clean — the intended
+  // curl is not an error, so it is not in the baseline.
+  const curved = rest({ aimDeg: 0, spin: 2, power: draw });
+  const both = rest(applyRelease({ aimDeg: 0, spin: 2, power: draw },
+    { tier: 'bad', label: '', runM: LINE, offCm: 10, spinErr: 0.2, aimDegErr: a10 }));
+  const worstBad = Math.abs(both.x - curved.x);
+  check('the worst bad release — line and handle agreeing — misses by a quarter of a metre, which is a miss you can see',
+    worstBad > 0.20 && worstBad < 0.28, `${worstBad.toFixed(3)} m off the line at draw weight`);
+  const cancels = rest(applyRelease({ aimDeg: 0, spin: 2, power: draw },
+    { tier: 'bad', label: '', runM: LINE, offCm: 10, spinErr: -0.2, aimDegErr: a10 }));
+  check('and the two errors do not always add: opposite ways they very nearly cancel',
+    Math.abs(cancels.x - curved.x) < 0.06, `${Math.abs(cancels.x - curved.x).toFixed(3)} m off the line`);
+
+  const applied = applyRelease({ aimDeg: 3.4, spin: -1, power: draw },
+    { tier: 'bad', label: '', runM: LINE, offCm: 10, spinErr: 0.2, aimDegErr: a10 });
+  check('the roll never touches the weight: the stone goes exactly as far as the meter said',
+    applied.power === draw, `power stayed ${applied.power}`);
+  check('a full handle is still a full handle: the load stays inside the calibrated range',
+    applyRelease({ aimDeg: 0, spin: 3, power: draw }, { aimDegErr: 0, spinErr: 0.2 }).spin === 3 &&
+    applyRelease({ aimDeg: 0, spin: -3, power: draw }, { aimDegErr: 0, spinErr: -0.2 }).spin === -3);
+  check('a release at full aim is not folded back at the edge of the dial — that limit is the control, not the ice',
+    near(applyRelease({ aimDeg: RULES.AIM_MAX_DEG, spin: 0, power: draw }, { aimDegErr: a10, spinErr: 0 }).aimDeg,
+      RULES.AIM_MAX_DEG + a10, 1e-12), `${(RULES.AIM_MAX_DEG + a10).toFixed(3)}°`);
+
+  const r1 = rollRelease(makeRng(4242), { power: draw }), r2 = rollRelease(makeRng(4242), { power: draw });
+  check('the same seed is the same release, so a match is still replayable from its seed',
+    JSON.stringify(r1) === JSON.stringify(r2), `${r1.tier} ${r1.offCm.toFixed(1)} cm`);
+  check('a different seed is a different release',
+    JSON.stringify(r1) !== JSON.stringify(rollRelease(makeRng(4243), { power: draw })));
+  const twice = rest(applyRelease({ aimDeg: 0, spin: 1, power: draw }, r1));
+  const twice2 = rest(applyRelease({ aimDeg: 0, spin: 1, power: draw }, r1));
+  check('the world stays deterministic about it: that release replays to the centimetre',
+    twice.x === twice2.x && twice.z === twice2.z, `x ${twice.x.toFixed(5)} z ${twice.z.toFixed(5)}`);
 }
 
 console.log(`\n${fail === 0 ? 'ALL OK' : 'FAILURES'} — ${pass} passed, ${fail} failed`);
