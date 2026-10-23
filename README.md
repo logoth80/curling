@@ -9,21 +9,26 @@ Built to the spec in [GAME_PROMPT.md](GAME_PROMPT.md).
 
 ## Run it
 
-ES modules and `fetch` of the GLB assets need an `http://` origin — opening
-`index.html` from the file system will not work.
-
 ```sh
-cd Games/Curling
-python -m http.server 8000
-# then open http://localhost:8000/
+node serve.mjs
 ```
 
-Any static server works (`npx serve`, `php -S`, etc.). If you open `index.html` by
-double-clicking it, the page says so rather than showing a black canvas — browsers
-refuse to load ES modules from a `file://` origin, which is also why the console
-error reads *"Cross origin requests are only supported for protocol schemes …"*.
-The game loads `assets/*.glb` if they are present and falls back to procedural
-stand-ins if the folder is empty — it must run either way, and
+That's the whole thing: it prints `http://127.0.0.1:8123/` and opens the page in the
+default browser. On Windows, `play.cmd` does the same from a double-click. A port can be
+named (`node serve.mjs 8000`), `--no-open` leaves the browser alone, `BROWSER=…` picks a
+particular one, and if 8123 is already serving it takes a free port and says which, so
+two checkouts can be open at once. [serve.mjs](serve.mjs) is a 113-line static file
+server with no dependencies and no build step, and it sends `no-store`, which is why a
+refresh after editing `main.js` shows the edit.
+
+ES modules and `fetch` of the GLB assets need an `http://` origin — opening
+`index.html` from the file system will not work; the page says so rather than showing a
+black canvas, because browsers refuse to load ES modules from a `file://` origin (which
+is also why the console error reads *"Cross origin requests are only supported for
+protocol schemes …"*). Any other static server works too — `python -m http.server 8000`,
+`npx serve`, `php -S` — the point of `serve.mjs` is that the right URL arrives without
+being typed. The game loads `assets/*.glb` if they are present and falls back to
+procedural stand-ins if the folder is empty — it must run either way, and
 [tests/uitest.mjs](tests/uitest.mjs) asserts both paths exist.
 
 Three.js comes from an import map in [index.html](index.html)
@@ -214,6 +219,8 @@ main.js         rendering, cameras, input, phases, HUD — the only file that to
 physics.js      pure logic: fixed-step world, rules, scoring, shot evaluation
 track.js        pure logic: the weight miniature (geometry + SVG text), derived from SHEET
 ai.js           candidate shots -> forward sim with physics.js -> endgame-weighted score
+serve.mjs       dev server: serves this folder over http:// and opens the page — not part of the game
+play.cmd        the same thing as a double-click on Windows
 assets/         six GLB assets + generated textures (assets/tex)
 blender/        the authoring and visual-gate scripts, plus their reports
 tests/          four Node suites, plus svg_peek.py to look at the widget

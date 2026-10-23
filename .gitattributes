@@ -3,6 +3,9 @@
 # stored as LF and checked out as LF, on every platform. Binaries listed last
 # win over the catch-all rule.
 * text eol=lf
+# Windows batch files are read by cmd.exe, which wants CRLF.
+*.cmd text eol=crlf
+*.bat text eol=crlf
 *.glb binary
 *.png binary
 *.jpg binary
