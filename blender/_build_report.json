@@ -1,0 +1,126 @@
+{
+  "sheet.glb": {
+    "tris": 380,
+    "parts": [
+      "floor_far",
+      "floor_near",
+      "hack_sheet_0",
+      "hack_sheet_1",
+      "house_button",
+      "house_eight",
+      "house_four",
+      "house_twelve",
+      "ice",
+      "ice_apron",
+      "line_back",
+      "line_centre",
+      "line_hog_far",
+      "line_hog_near",
+      "line_tee"
+    ],
+    "bytes": 407748
+  },
+  "stone_red.glb": {
+    "tris": 876,
+    "parts": [
+      "handle",
+      "handle_cap",
+      "handle_grip",
+      "handle_stem",
+      "stone_body"
+    ],
+    "bytes": 355016
+  },
+  "stone_yellow.glb": {
+    "tris": 876,
+    "parts": [
+      "handle",
+      "handle_cap",
+      "handle_grip",
+      "handle_stem",
+      "stone_body"
+    ],
+    "bytes": 355020
+  },
+  "broom.glb": {
+    "tris": 148,
+    "parts": [
+      "broom_brace",
+      "broom_head",
+      "broom_pad",
+      "broom_shaft"
+    ],
+    "bytes": 12324
+  },
+  "hack.glb": {
+    "tris": 84,
+    "parts": [
+      "hack_base",
+      "hack_pad_0",
+      "hack_pad_1",
+      "hack_pin"
+    ],
+    "bytes": 7932
+  },
+  "arena.glb": {
+    "tris": 588,
+    "parts": [
+      "banner_far",
+      "banner_near",
+      "banner_strip_far",
+      "banner_strip_near",
+      "board_l",
+      "board_r",
+      "crowd_l_0",
+      "crowd_l_1",
+      "crowd_l_2",
+      "crowd_l_3",
+      "crowd_r_0",
+      "crowd_r_1",
+      "crowd_r_2",
+      "crowd_r_3",
+      "dasher_far",
+      "dasher_kick_far",
+      "dasher_kick_near",
+      "dasher_near",
+      "deck_l",
+      "deck_r",
+      "kick_l",
+      "kick_r",
+      "lamp_0",
+      "lamp_1",
+      "lamp_2",
+      "lamp_3",
+      "lamp_4",
+      "lamp_5",
+      "lamp_6",
+      "lamp_7",
+      "stand_l_0",
+      "stand_l_1",
+      "stand_l_2",
+      "stand_l_3",
+      "stand_r_0",
+      "stand_r_1",
+      "stand_r_2",
+      "stand_r_3",
+      "truss_0",
+      "truss_1",
+      "truss_10",
+      "truss_2",
+      "truss_3",
+      "truss_4",
+      "truss_5",
+      "truss_6",
+      "truss_7",
+      "truss_8",
+      "truss_9"
+    ],
+    "bytes": 58116
+  },
+  "_textures": [
+    "granite_albedo.png",
+    "granite_normal.png",
+    "ice_pebble_normal.png",
+    "ice_pebble_rough.png"
+  ]
+}

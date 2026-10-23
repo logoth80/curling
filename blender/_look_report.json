@@ -1,0 +1,135 @@
+{
+  "engine": "BLENDER_EEVEE",
+  "stones": 6,
+  "images": [
+    "blender/preview/glb_aim_from_hack.png",
+    "blender/preview/glb_track_midice.png",
+    "blender/preview/glb_summary_from_back.png",
+    "blender/preview/glb_title_view.png",
+    "blender/preview/glb_plan_over_house.png",
+    "blender/preview/glb_plan_as_it_was.png",
+    "blender/preview/glb_hold_after_shot.png",
+    "blender/preview/glb_stone_closeup.png"
+  ],
+  "sizes": {
+    "glb_aim_from_hack.png": 684650,
+    "glb_track_midice.png": 727177,
+    "glb_summary_from_back.png": 717383,
+    "glb_title_view.png": 701410,
+    "glb_plan_over_house.png": 668044,
+    "glb_plan_as_it_was.png": 626641,
+    "glb_hold_after_shot.png": 738177,
+    "glb_stone_closeup.png": 774668
+  },
+  "look": {
+    "aim_from_hack": {
+      "mean": 0.326,
+      "clip_frac": 0.0,
+      "black_frac": 0.0,
+      "ice_region_mean": 0.342,
+      "ice_region_clip": 0.0,
+      "colour_std": 0.159
+    },
+    "track_midice": {
+      "mean": 0.416,
+      "clip_frac": 0.0,
+      "black_frac": 0.0,
+      "ice_region_mean": 0.441,
+      "ice_region_clip": 0.0,
+      "colour_std": 0.196
+    },
+    "summary_from_back": {
+      "mean": 0.321,
+      "clip_frac": 0.0,
+      "black_frac": 0.0,
+      "ice_region_mean": 0.313,
+      "ice_region_clip": 0.0,
+      "colour_std": 0.174
+    },
+    "title_view": {
+      "mean": 0.301,
+      "clip_frac": 0.0,
+      "black_frac": 0.0,
+      "ice_region_mean": 0.322,
+      "ice_region_clip": 0.0,
+      "colour_std": 0.166
+    },
+    "plan_over_house": {
+      "mean": 0.281,
+      "clip_frac": 0.0,
+      "black_frac": 0.0,
+      "ice_region_mean": 0.399,
+      "ice_region_clip": 0.0,
+      "colour_std": 0.2
+    },
+    "plan_as_it_was": {
+      "mean": 0.894,
+      "clip_frac": 0.0,
+      "black_frac": 0.0,
+      "ice_region_mean": 0.972,
+      "ice_region_clip": 0.0,
+      "colour_std": 0.217
+    },
+    "hold_after_shot": {
+      "mean": 0.415,
+      "clip_frac": 0.0,
+      "black_frac": 0.0,
+      "ice_region_mean": 0.416,
+      "ice_region_clip": 0.0,
+      "colour_std": 0.162
+    },
+    "stone_closeup": {
+      "mean": 0.368,
+      "clip_frac": 0.0,
+      "black_frac": 0.0,
+      "ice_region_mean": 0.447,
+      "ice_region_clip": 0.0,
+      "colour_std": 0.144
+    }
+  },
+  "gates": {
+    "aim_from_hack": {
+      "framed": true,
+      "ice_not_clipped": true,
+      "ice_visible": true,
+      "not_flat_tone": true
+    },
+    "track_midice": {
+      "framed": true,
+      "ice_not_clipped": true,
+      "ice_visible": true,
+      "not_flat_tone": true
+    },
+    "summary_from_back": {
+      "framed": true,
+      "ice_not_clipped": true,
+      "ice_visible": true,
+      "not_flat_tone": true
+    },
+    "title_view": {
+      "framed": true,
+      "ice_not_clipped": true,
+      "ice_visible": true,
+      "not_flat_tone": true
+    },
+    "plan_over_house": {
+      "framed": true,
+      "ice_not_clipped": true,
+      "ice_visible": true,
+      "not_flat_tone": true
+    },
+    "hold_after_shot": {
+      "framed": true,
+      "ice_not_clipped": true,
+      "ice_visible": true,
+      "not_flat_tone": true
+    },
+    "stone_closeup": {
+      "framed": true,
+      "ice_not_clipped": true,
+      "ice_visible": true,
+      "not_flat_tone": true
+    }
+  },
+  "all_gates_pass": true
+}

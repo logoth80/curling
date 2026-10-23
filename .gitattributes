@@ -1,0 +1,10 @@
+# The tests read these files as text and the dev server serves them to a browser,
+# so keep the same bytes in the working tree as in the object store: text is
+# stored as LF and checked out as LF, on every platform. Binaries listed last
+# win over the catch-all rule.
+* text eol=lf
+*.glb binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.blend binary

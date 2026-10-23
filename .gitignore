@@ -1,0 +1,11 @@
+# Python bytecode from the Blender helper scripts (blender/*.py, tests/svg_peek.py)
+__pycache__/
+*.pyc
+
+# Blender sidecar backups, if a .blend is ever opened in the GUI
+*.blend1
+
+# OS noise
+.DS_Store
+Thumbs.db
+desktop.ini

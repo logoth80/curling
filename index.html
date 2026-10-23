@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Curling — 4 End</title>
+<!--
+  Keyboard-only 1v1 curling game. Controls: Space + the four arrow keys, plus
+  Enter as a view-only key (a plan of the house), and R on the game-over screen.
+  Rules adapted from
+  https://en.wikipedia.org/wiki/Curling and https://en.wikipedia.org/wiki/Glossary_of_curling
+  See GAME_PROMPT.md for the design contract and physics.js for the rule sources.
+-->
+<style>
+  :root {
+    --ice: #cfe4f2;
+    --panel: rgba(9, 16, 24, 0.72);
+    --panel-edge: rgba(255, 255, 255, 0.14);
+    --ink: #eef5fb;
+    --dim: #93a7b8;
+    --red: #ff4b4b;
+    --yellow: #ffd83d;
+    --blue: #4aa8ff;
+    --good: #7ee787;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #05080c; color: var(--ink); overflow: hidden;
+    font: 14px/1.45 ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace; }
+  canvas { display: block; }
+
+  #hud { position: fixed; inset: 0; pointer-events: none; user-select: none; }
+  .hidden { display: none !important; }
+
+  /* ---------------- scoreboard ---------------- */
+  #board {
+    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: stretch; gap: 10px;
+    background: var(--panel); border: 1px solid var(--panel-edge); border-radius: 10px;
+    padding: 8px 10px; backdrop-filter: blur(6px); min-width: 460px;
+  }
+  .team { display: flex; flex-direction: column; gap: 3px; min-width: 132px; padding: 2px 6px; border-radius: 8px; }
+  .team.active { background: rgba(255,255,255,0.08); outline: 1px solid rgba(255,255,255,0.22); }
+  .team .head { display: flex; align-items: center; gap: 6px; font-size: 11px; letter-spacing: .12em; color: var(--dim); }
+  .team .head .swatch { width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(0,0,0,.5); }
+  .red .swatch { background: var(--red); } .yellow .swatch { background: var(--yellow); }
+  .team .pts { font-size: 30px; font-weight: 700; line-height: 1; }
+  .pips { display: flex; gap: 4px; }
+  .pip { width: 9px; height: 9px; border-radius: 50%; border: 1px solid rgba(255,255,255,.45); }
+  .red .pip.left { background: var(--red); border-color: var(--red); }
+  .yellow .pip.left { background: var(--yellow); border-color: var(--yellow); }
+  .hammer { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--good); letter-spacing: .1em; }
+  .hammer svg { width: 14px; height: 14px; }
+  .hammer.off { color: var(--dim); opacity: .45; }
+  #center { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 0 8px; border-left: 1px solid var(--panel-edge); border-right: 1px solid var(--panel-edge); }
+  #endNo { font-size: 12px; letter-spacing: .18em; color: var(--dim); }
+  #endNo b { color: var(--ink); }
+  #vsLine { font-size: 11px; color: var(--dim); }
+
+  /* ---------------- contextual prompt ----------------
+     Pinned to the left gutter. This box is read *while* the weight miniature is
+     being aimed, and centred above the meters it covered the one control that
+     matters — which is the opposite of what an explanation is for. */
+  #prompt {
+    position: absolute; left: 16px; bottom: 44px;
+    background: var(--panel); border: 1px solid var(--panel-edge); border-radius: 8px;
+    padding: 7px 12px; text-align: left; max-width: min(340px, 30vw);
+    backdrop-filter: blur(6px);
+  }
+  #prompt .big { font-size: 15px; letter-spacing: .04em; }
+  #prompt .sub { color: var(--dim); font-size: 12px; }
+  kbd { display: inline-block; min-width: 20px; padding: 1px 5px; margin: 0 2px; border-radius: 4px;
+    background: #1b2530; border: 1px solid #35485c; border-bottom-width: 2px; font: inherit; font-size: 12px; }
+  #guardcue { margin-top: 4px; color: #ffb454; font-size: 12px; }
+
+  /* ---------------- meters ---------------- */
+  #meters { position: absolute; left: 50%; bottom: 38px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  #meterRow { display: flex; align-items: flex-end; gap: 18px; }
+  .meter { background: var(--panel); border: 1px solid var(--panel-edge); border-radius: 8px; padding: 6px 8px 8px; backdrop-filter: blur(6px); }
+  .meter .lbl { font-size: 10px; letter-spacing: .14em; color: var(--dim); margin-bottom: 4px; }
+  /* The weight control is a to-scale miniature of the sheet being thrown at, not
+     an abstract bar: the far hog line, the house and the back line sit where they
+     really are, and the marker rides the same predicted path the 3D preview uses.
+     Distance is the thing being aimed at, so distance is what is drawn.
+     The viewBox is generated from SHEET in main.js; this only styles it. */
+  #powerBox { width: min(452px, 88vw); }
+  #sheetTrack { display: block; width: 100%; height: auto; background: #05080d; border-radius: 6px; }
+  #sheetTrack .ice { fill: #16222e; }
+  #sheetTrack .board { fill: #24374b; }
+  #sheetTrack .r12 { fill: #1c5688; } #sheetTrack .r8 { fill: #c6d2dd; }
+  #sheetTrack .r4 { fill: #ad3230; } #sheetTrack .rb { fill: #dde6ee; }
+  #sheetTrack .hog { stroke: #ff5b5b; stroke-width: 1.8; }
+  #sheetTrack .back { stroke: #93a8bd; stroke-width: 1.2; }
+  #sheetTrack .tee { stroke: rgba(255,255,255,.30); stroke-width: 1; }
+  #sheetTrack .deadzone { fill: rgba(255,91,91,.12); }
+  #sheetTrack .outzone { fill: rgba(147,168,189,.10); }
+  #sheetTrack .fgz { fill: rgba(255,180,84,.07); stroke: #ffb454; stroke-width: 1; stroke-dasharray: 3 3; }
+  #sheetTrack .tick { stroke: #38506a; stroke-width: 1; }
+  #sheetTrack .lab { font: 600 7px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #7d92a6; letter-spacing: .08em; }
+  #sheetTrack .lab.warn { fill: #ff8b8b; } #sheetTrack .lab.hot { fill: #d7e3ee; }
+  #sheetTrack .path { fill: none; stroke: #7ee787; stroke-width: 1.6; stroke-dasharray: 4 3; opacity: .85; }
+  #sheetTrack .stop { stroke: #fff; stroke-width: 1.4; }
+  #sheetTrack .live { stroke: rgba(6,10,16,.85); stroke-width: 1; }
+  #sheetTrack .ghost { fill: none; stroke: rgba(215,227,238,.55); stroke-width: 1; }
+  #sheetTrack line.ghost { stroke-dasharray: 3 2; }
+  #sheetTrack .gone { stroke: #ff8b8b; stroke-width: 1.6; fill: none; }
+  #sheetTrack .drawzone { fill: rgba(126,231,135,.10); stroke: #7ee787; stroke-width: .8; stroke-dasharray: 3 2; }
+  .readrow { font-size: 11px; color: var(--dim); margin-top: 4px; display: flex; justify-content: space-between; }
+  #spinTrack { display: flex; align-items: center; gap: 5px; }
+  .slev { width: 20px; height: 20px; border-radius: 4px; border: 1px solid #35485c; display: grid; place-items: center; font-size: 11px; color: var(--dim); }
+  .slev.on { background: var(--blue); color: #04121d; border-color: #9fd4ff; font-weight: 700; }
+  #spinIcon { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--dim); position: relative; transition: transform .18s ease; }
+  #spinIcon::after { content: ""; position: absolute; left: 50%; top: -6px; width: 3px; height: 10px; background: currentColor; transform: translateX(-50%); }
+  #sweepTrack { position: relative; width: 200px; height: 10px; border-radius: 4px; background: #16202b; overflow: hidden; }
+  #sweepFill { position: absolute; inset: 0 auto 0 0; width: 100%; background: linear-gradient(90deg,#7ee787,#4aa8ff); }
+  #sweepTrack.busy #sweepFill { animation: flick .5s steps(2) infinite; }
+  @keyframes flick { 50% { opacity: .55; } }
+  /* Below ~1200px there is no room for a 340px explanation beside a 452px
+     control, so the text moves to the top-left gutter instead — still never over
+     the control, which is the whole point. The miniature keeps its size. */
+  @media (max-width: 1200px) {
+    #prompt { bottom: auto; top: 114px; max-width: min(300px, 26vw); }
+  }
+
+  /* ---------------- callouts / telemetry ---------------- */
+  #callout {
+    position: absolute; left: 50%; top: 24%; transform: translate(-50%,0);
+    font-size: 40px; font-weight: 800; letter-spacing: .12em; text-shadow: 0 4px 18px rgba(0,0,0,.8);
+    color: #fff; text-align: center;
+  }
+  #telemetry {
+    position: absolute; right: 18px; top: 96px; background: var(--panel); border: 1px solid var(--panel-edge);
+    border-radius: 8px; padding: 8px 10px; font-size: 12px; min-width: 210px;
+  }
+  #telemetry h4 { margin: 0 0 6px; font-size: 11px; letter-spacing: .14em; color: var(--dim); }
+  #telemetry .row { display: flex; justify-content: space-between; gap: 12px; }
+  #telemetry .row span:last-child { color: var(--ink); }
+
+  /* ---------------- key legend ---------------- */
+  #legend {
+    position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%);
+    display: flex; gap: 14px; font-size: 11px; color: var(--dim);
+    background: rgba(9,16,24,.55); border: 1px solid var(--panel-edge); border-radius: 6px; padding: 4px 10px;
+  }
+  #legend b { color: var(--ink); font-weight: 600; }
+
+  /* ---------------- overlays ---------------- */
+  .overlay {
+    position: fixed; inset: 0; display: grid; place-items: center;
+    background: radial-gradient(1200px 700px at 50% 40%, rgba(12,26,38,.86), rgba(3,6,10,.96));
+    pointer-events: auto;
+  }
+  /* Side panel: the end summary stays out of the way of the 3D measure-up
+     (counting rings + lines from the button), which is the point of the screen. */
+  .overlay.side { background: transparent; display: flex; align-items: center; justify-content: flex-end; padding-right: 26px; pointer-events: none; }
+  .overlay.side .card { pointer-events: auto; width: min(430px, 42vw); }
+  .card { background: var(--panel); border: 1px solid var(--panel-edge); border-radius: 12px; padding: 22px 26px; width: min(760px, 92vw); }
+  .card h1 { margin: 0 0 2px; font-size: 30px; letter-spacing: .06em; }
+  .card h1 .r { color: var(--red); } .card h1 .y { color: var(--yellow); }
+  .card p.lead { color: var(--dim); margin: 0 0 16px; }
+  .opts { display: flex; flex-direction: column; gap: 10px; }
+  .opt { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border-radius: 8px; border: 1px solid transparent; }
+  .opt.sel { border-color: var(--blue); background: rgba(74,168,255,.12); }
+  .opt .k { font-size: 11px; letter-spacing: .14em; color: var(--dim); }
+  .opt .v { font-size: 15px; }
+  .opt .v .arrow { color: var(--blue); }
+  .foot { margin-top: 16px; color: var(--dim); font-size: 12px; }
+  .go { text-align: center; margin-top: 14px; font-size: 15px; }
+
+  table.tally { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
+  table.tally th, table.tally td { padding: 5px 8px; text-align: center; border-bottom: 1px solid rgba(255,255,255,.08); }
+  table.tally th { color: var(--dim); font-weight: 500; font-size: 11px; letter-spacing: .1em; }
+  table.tally td.who { text-align: left; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+  .dot.r { background: var(--red); } .dot.y { background: var(--yellow); }
+  .sumline { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 12px; font-size: 13px; }
+  .sumline .note { color: var(--dim); }
+  .counting { color: var(--good); }
+  #hint { position: absolute; left: 12px; bottom: 12px; color: var(--dim); font-size: 11px; }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<div id="hud">
+  <div id="board">
+    <div class="team red" id="teamA">
+      <div class="head"><span class="swatch"></span><span id="nameA">RED</span></div>
+      <div class="pts" id="scoreA">0</div>
+      <div class="pips" id="pipsA"></div>
+      <div class="hammer off" id="hammerA" title="hammer = throws the last stone of the end">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 20l3-1 10-10-2-2L5 17l-1 3z"/><path d="M14 6l4 4"/><path d="M17 3l4 4-2 2-4-4 2-2z"/></svg>
+        HAMMER
+      </div>
+    </div>
+    <div id="center">
+      <div id="endNo">END <b>1</b> / 4</div>
+      <div id="vsLine">hotseat</div>
+    </div>
+    <div class="team yellow" id="teamB">
+      <div class="head"><span class="swatch"></span><span id="nameB">YELLOW</span></div>
+      <div class="pts" id="scoreB">0</div>
+      <div class="pips" id="pipsB"></div>
+      <div class="hammer off" id="hammerB">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 20l3-1 10-10-2-2L5 17l-1 3z"/><path d="M14 6l4 4"/><path d="M17 3l4 4-2 2-4-4 2-2z"/></svg>
+        HAMMER
+      </div>
+    </div>
+  </div>
+
+  <div id="callout" class="hidden"></div>
+  <div id="telemetry" class="hidden"></div>
+
+  <div id="meters">
+    <div class="meter" id="powerBox">
+      <div class="lbl">WEIGHT — <kbd>SPACE</kbd> STARTS THE MARKER, <kbd>SPACE</kbd> AGAIN LETS GO</div>
+      <!-- To-scale miniature of the end of the sheet (SHEET constants in physics.js
+           generate the geometry): far hog line, house, back line, and the predicted
+           path the stone would take at the current weight. The drawn span is exactly
+           the span the weight meter sweeps, so this picture is the control surface. -->
+      <svg id="sheetTrack" viewBox="0 0 452 148" preserveAspectRatio="xMidYMid meet"
+           role="img" aria-label="miniature of the sheet showing where the stone would stop">
+        <g id="trackStatic"></g>
+        <rect id="trackFgz" class="fgz" x="0" y="0" width="0" height="0" visibility="hidden"></rect>
+        <g id="trackStones"></g>
+        <g id="trackGhosts"></g>
+        <polyline id="trackPath" class="path" points=""></polyline>
+        <g id="trackStop" visibility="hidden"><circle class="stop" cx="0" cy="0" r="5"></circle></g>
+      </svg>
+      <div class="readrow"><span id="powerVal">— m</span><span id="weightName">—</span></div>
+    </div>
+    <div id="meterRow">
+      <div class="meter" id="spinBox">
+        <div class="lbl">SPIN — ↑ CLOCKWISE / ↓ COUNTER</div>
+        <div id="spinTrack">
+          <div id="spinIcon"></div>
+          <div class="slev" data-s="-3">-3</div><div class="slev" data-s="-2">-2</div>
+          <div class="slev" data-s="-1">-1</div>
+          <div class="slev" data-s="0">0</div>
+          <div class="slev" data-s="1">+1</div><div class="slev" data-s="2">+2</div>
+          <div class="slev" data-s="3">+3</div>
+        </div>
+      </div>
+      <div class="meter" id="sweepBox">
+        <div class="lbl">BRUSH — HOLD <kbd>SPACE</kbd>, ANYWHERE ALONG THE PATH</div>
+        <!-- the bar is how much of this delivery you have brushed, not a budget -->
+        <div id="sweepTrack"><div id="sweepFill"></div></div>
+        <div class="readrow"><span id="sweepVal">0.0 s brushed</span><span id="sweepState">idle</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="prompt" class="hidden"></div>
+
+  <div id="legend">
+    <span><b>Line</b> <kbd>←</kbd><kbd>→</kbd></span>
+    <span><b>Handle</b> <kbd>↑</kbd><kbd>↓</kbd></span>
+    <span><b>Weight</b> <kbd>Space</kbd> ×2</span>
+    <span><b>Brush</b> hold <kbd>Space</kbd></span>
+    <span><b>Plan view</b> <kbd>Enter</kbd></span>
+    <span><b>Confirm</b> <kbd>Space</kbd></span>
+  </div>
+  <div id="hint"></div>
+</div>
+
+<div id="title" class="overlay">
+  <div class="card">
+    <h1>CURLING <span class="r">●</span> <span class="y">●</span> 4 END</h1>
+    <p class="lead">Keyboard only: <kbd>Space</kbd> + <kbd>← ↑ → ↓</kbd>. Line and handle together, then weight along the miniature, then decide whether to brush the ice. <kbd>Enter</kbd> at any point shows the same line from above the house.</p>
+    <div class="opts" id="titleOpts">
+      <div class="opt" data-opt="mode"><span class="k">MODE <span style="opacity:.6">(← →)</span></span><span class="v" id="optMode"></span></div>
+      <div class="opt" data-opt="difficulty"><span class="k">CPU STRENGTH <span style="opacity:.6">(← →)</span></span><span class="v" id="optDifficulty"></span></div>
+      <div class="opt" data-opt="first"><span class="k">HAMMER, END 1 <span style="opacity:.6">(← →)</span></span><span class="v" id="optFirst"></span></div>
+    </div>
+    <div class="go">Press <kbd>Space</kbd> to throw the first stone.</div>
+    <div class="foot">4 ends · 8 stones each · only stones touching the 12-foot house count · scoring hands the hammer away, a blank end keeps it · the first 5 stones of an end are protected by the free guard zone. Tied after 4 ends → extra ends.</div>
+  </div>
+</div>
+
+<div id="summary" class="overlay side hidden">
+  <div class="card">
+    <h1 id="sumTitle" style="font-size:22px">END 1</h1>
+    <p class="lead" id="sumLead"></p>
+    <div id="sumBody"></div>
+    <div class="sumline"><span id="sumHammer"></span><span class="note">Press <kbd>Space</kbd> for the next end.</span></div>
+  </div>
+</div>
+
+<div id="gameover" class="overlay hidden">
+  <div class="card">
+    <h1 id="goTitle">GAME</h1>
+    <p class="lead" id="goLead"></p>
+    <div id="goBody"></div>
+    <div class="sumline"><span class="counting" id="goWinner"></span><span class="note">Press <kbd>R</kbd> to play again.</span></div>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module" src="./main.js"></script>
+<script>
+/* A plain script, on purpose. If the module above cannot be loaded, no module
+   code runs at all and nothing else could explain the black canvas. main.js sets
+   window.__curlingBoot when its module graph loads; if that never happens, say
+   why on the page instead of leaving the player staring at a dark arena. The
+   watcher keeps polling so a slow CDN that eventually arrives takes the notice
+   away again. */
+window.__curlingBoot = false;
+function bootNotice() {
+  if (document.getElementById('bootfail')) return;
+  var fromDisk = location.protocol === 'file:';
+  var d = document.createElement('div');
+  d.id = 'bootfail';
+  d.className = 'overlay';
+  d.innerHTML = '<div class="card"><h1>THE GAME DID NOT START</h1>' + (fromDisk
+    ? '<p class="lead">This page was opened as a file. Browsers will not load ES modules ' +
+      'from a <code>file://</code> URL, so the game code never runs.</p>' +
+      '<p>Serve this folder over HTTP, then open the address it prints:</p>' +
+      '<pre style="background:#0b1220;border:1px solid #24344d;padding:10px;border-radius:6px;white-space:pre-wrap">' +
+      'cd Games/Curling\npython -m http.server 8000</pre>' +
+      '<p>or any other static server. The game needs <code>http://</code> for its modules ' +
+      'and for the GLB assets.</p>'
+    : '<p class="lead">The page is served over HTTP, but the game code still did not load.</p>' +
+      '<p>Open the browser console: the Three.js import map needs network access on first ' +
+      'load, and <code>main.js</code>, <code>physics.js</code> and <code>ai.js</code> must ' +
+      'be readable next to this file.</p>') +
+    '</div>';
+  document.body.appendChild(d);
+}
+setTimeout(function () { if (!window.__curlingBoot) bootNotice(); }, 6000);
+var watch = setInterval(function () {
+  if (!window.__curlingBoot) return;
+  clearInterval(watch);
+  var p = document.getElementById('bootfail');
+  if (p) p.remove();
+}, 400);
+</script>
+</body>
+</html>
