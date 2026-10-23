@@ -359,36 +359,49 @@ group('8. Scoring is recomputed independently at the end of every end');
   check('a stone outside the 12-foot ring is not counted', !r.counting.includes('y2'));
   check('closest-of-each-colour markers are available for the overlay',
     !!r.best.A && !!r.best.B && r.best.A.d < r.best.B.d);
-  void distanceToButton; void inHouse; void inFreeGuardZone; void StoneWorld; void powerForDistance;
+  void distanceToButton; void inHouse; void inFreeGuardZone; void StoneWorld;
 }
 
 group('9. The two ways this game makes a delivery imperfect still tell one story');
 {
   // A human delivery is made imprecise by release.js, a CPU delivery by DIFFICULTY
-  // in ai.js. Neither module knows the other exists, so this is the only place that
-  // notices if they drift apart. The acceptance item "NORMAL must lose to a
-  // determined human sometimes" depends on the human being the more accurate of the
-  // two, and nothing above would fail if that stopped being true.
+  // in ai.js, and neither module knows the other exists. This is the only place that
+  // notices if they drift apart. What has to stay true is the *expected* comparison:
+  // a NORMAL CPU is off its line on every single throw, a player only on the tiers
+  // below a clean release, and the acceptance item "NORMAL must lose to a determined
+  // human sometimes" rests on the player being the sharper of the two on average.
   const LINE = SHEET.teeZ - SHEET.hackZ;              // 30 m — the standard draw
   const DEG = Math.PI / 180;
   const total = RELEASE_TIERS.reduce((s, t) => s + t.weight, 0);
-  const worstHuman = Math.max(...RELEASE_TIERS.map(t => angleForOffset(t.line, LINE)));
-  check('the worst line a human release can produce is still tighter than a NORMAL CPU throws',
-    worstHuman < DIFFICULTY.normal.aimDeg,
-    `human worst ±${worstHuman.toFixed(3)}° at 30 m against CPU ±${DIFFICULTY.normal.aimDeg}°`);
+  const draw = powerForDistance(LINE);
+  let n = 0;
+  const atRest = (shot) => simulateDelivery([], { team: 'A', ...shot }, { id: `m${++n}` }).delivered;
+  const perLevel = Math.abs(atRest({ aimDeg: 0, spin: 2, power: draw }).x - atRest({ aimDeg: 0, spin: 0, power: draw }).x) / 2;
 
-  const meanHuman = RELEASE_TIERS.reduce((s, t) => s + (t.weight / total) * (t.line / 2), 0);  // E|offset| of a uniform ± span
+  const meanLine = RELEASE_TIERS.reduce((s, t) => s + (t.weight / total) * (t.line / 2), 0);   // E|offset| of a uniform ±span
+  const meanSpin = RELEASE_TIERS.reduce((s, t) => s + (t.weight / total) * (t.spin / 2), 0);   // E|handle error| in levels
+  const expectedHuman = Math.hypot(meanLine, meanSpin * perLevel);                            // two independent errors
   const meanCpu = Math.tan(DIFFICULTY.normal.aimDeg * DEG) * LINE;
-  check('and on average a player line is several times sharper, which is the part of the shot the CPU is bad at',
-    meanHuman * 4 < meanCpu, `human mean ${meanHuman.toFixed(4)} m against NORMAL mean ${meanCpu.toFixed(4)} m at 30 m`);
+  check('a player line is sharper where it counts — the expected error across a match against a NORMAL CPU on every throw',
+    expectedHuman < meanCpu,
+    `player ~${(expectedHuman * 100).toFixed(1)} cm at 30 m (${(meanLine * 100).toFixed(1)} cm of line plus ` +
+    `${(meanSpin * perLevel * 100).toFixed(1)} cm of handle, one handle level being ${(perLevel * 100).toFixed(0)} cm) ` +
+    `against NORMAL ${(meanCpu * 100).toFixed(1)} cm`);
+
+  const worstHuman = Math.max(...RELEASE_TIERS.map(t => angleForOffset(t.line, LINE)));
+  const offShare = 100 * RELEASE_TIERS.filter(t => t.line > 0).reduce((s, t) => s + t.weight, 0) / total;
+  check('a player can be further off than a NORMAL CPU, but only on the tiers below a clean release — the choice, recorded',
+    worstHuman > DIFFICULTY.normal.aimDeg,
+    `worst ±${worstHuman.toFixed(3)}° on ${offShare.toFixed(0)}% of throws, NORMAL ±${DIFFICULTY.normal.aimDeg}° on all of them`);
 
   check('the release table carries no weight term: a human gets exactly the distance the meter stopped at, and a CPU does not',
     RELEASE_TIERS.every(t => !('power' in t)) && DIFFICULTY.normal.power > 0,
     `CPU weight noise ±${DIFFICULTY.normal.power} of full power`);
 
+  const scriptMetres = Math.tan(HUMAN_SCRIPT.a * DEG) * LINE;
   check('the scripted human in this file is no more accurate than the game lets a player be, so the win counts above describe a player',
-    HUMAN_SCRIPT.a >= worstHuman,
-    `script aim ±${HUMAN_SCRIPT.a}° against the game's worst ±${worstHuman.toFixed(3)}°`);
+    scriptMetres >= expectedHuman,
+    `script aim ${scriptMetres.toFixed(3)} m against the game's expected release ${expectedHuman.toFixed(3)} m at 30 m`);
   check('and the rough stand-in is worse in the same shape, not in a different one',
     HUMAN_ROUGH.a > HUMAN_SCRIPT.a && HUMAN_ROUGH.p > HUMAN_SCRIPT.p,
     `rough ±${HUMAN_ROUGH.a}°/±${HUMAN_ROUGH.p} against practised ±${HUMAN_SCRIPT.a}°/±${HUMAN_SCRIPT.p}`);

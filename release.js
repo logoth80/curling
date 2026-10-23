@@ -7,10 +7,15 @@
 // every delivery is exactly what the interface selected asks the player for a
 // precision no thrower has, and it makes the preview a promise instead of a call.
 //
-// The four tiers are the ones the game asks for: 50% good, 25% ok, 12% mediocre,
-// 12% bad. Those weights add to 99, so they are used as *weights* and normalised
-// rather than read as percentages — the ratio stays exactly as specified and no
-// unclaimed 1% quietly lands in some tier.
+// The four tiers arrive at the frequencies the game asks for — 50% good, 25% ok, 12%
+// mediocre, 12% bad. Those weights add to 99, so they are used as *weights* and
+// normalised rather than read as percentages: the ratio stays exactly as specified and
+// no unclaimed 1% quietly lands in some tier. The spans are a separate decision, and
+// they were raised on purpose: the first figures (±0.1 of a handle, ±5 cm, ±10 cm)
+// turned out to be a difference nobody could feel over a 1.83 m house, so every span
+// on a non-clean tier is doubled. A clean release keeps its small handle jitter and no
+// line error at all — that gap is the entire difference between a good delivery and a
+// merely acceptable one, so it is worth keeping wide.
 //
 // Two things can go wrong, and they are different in kind:
 //
@@ -26,17 +31,21 @@
 //                angle_rad = atan(offset_m / run_m)
 //
 //            At the standard line — a 30 m draw, hack to button — that is
-//            atan(0.05/30) = 0.0955 degrees for five centimetres and 0.191 for
-//            ten. Those are the figures quoted in the README. What gets applied to
-//            a throw is derived against that throw's own unbrushed run, so a raise
-//            gets the same centimetres at *its* end rather than a smaller share of
-//            them, and the run used is the unbrushed one because that is the line
-//            the preview and the weight miniature show.
+//            atan(0.10/30) = 0.191 degrees for ten centimetres and 0.382 for twenty;
+//            at a 20 m raise the same tiers are 0.286 and 0.573 degrees for the same
+//            centimetres on the ice. Those are the figures quoted in the README. What
+//            gets applied to a throw is derived against that throw's own unbrushed
+//            run, so a raise gets the same centimetres at *its* end rather than a
+//            smaller share of them, and the run used is the unbrushed one because that
+//            is the line the preview and the weight miniature show.
 //
 // The CPU does not come through this table. Its inaccuracy is its difficulty ladder
 // (DIFFICULTY in ai.js), which models something else: a plan chosen badly as well as
 // thrown badly. The ladder and this table are checked against each other in
-// tests/matchtest.mjs so they cannot drift apart unnoticed.
+// tests/matchtest.mjs so they cannot drift apart unnoticed — and the comparison that
+// means anything is the expected one, not the worst one: a NORMAL CPU is off its line
+// by ±0.24 degrees on every single delivery, while a player reaches that only on the
+// tiers below a clean release.
 //
 // Pure module: no THREE, no DOM, no timers — the same reason physics.js and track.js
 // import nothing, and why this file can be tested from Node at all.
@@ -50,9 +59,9 @@ import { RULES, distanceForPower } from './physics.js';
  */
 export const RELEASE_TIERS = [
   { name: 'good',     label: 'clean release', weight: 50, spin: 0.10, line: 0.00 },
-  { name: 'ok',       label: 'slightly off',  weight: 25, spin: 0.10, line: 0.05 },
-  { name: 'mediocre', label: 'loose release', weight: 12, spin: 0.20, line: 0.05 },
-  { name: 'bad',      label: 'bad release',   weight: 12, spin: 0.20, line: 0.10 },
+  { name: 'ok',       label: 'slightly off',  weight: 25, spin: 0.20, line: 0.10 },
+  { name: 'mediocre', label: 'loose release', weight: 12, spin: 0.40, line: 0.10 },
+  { name: 'bad',      label: 'bad release',   weight: 12, spin: 0.40, line: 0.20 },
 ];
 
 const TOTAL_WEIGHT = RELEASE_TIERS.reduce((s, t) => s + t.weight, 0);

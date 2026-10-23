@@ -259,10 +259,12 @@ All four pass. Highlights of what they pin down:
   roll described in [A delivery is a release](#a-delivery-is-a-release-the-called-line-vs-the-thrown-one).
 - That roll is tested the same way: the four tiers and their exact spans, the
   frequencies over 40 000 draws of one fixed seed, no draw ever past its own tier,
-  the angle conversions quoted above (`0.0955°`, `0.1910°`), the *measured* result on
-  the ice — `0.0499 m` and `0.0999 m` of line error at 30 m and at 20 m, with and
-  without a handle turn — `0.244 m` for a bad release whose two errors agree, and that
-  the same seed replays the same release and the same rest position.
+  the angle conversions quoted above (`0.1910°`, `0.3820°`), the *measured* result on
+  the ice — `0.0999 m` and `0.1998 m` of line error at 30 m and at 20 m, with and
+  without a handle turn, `29 cm` from a handle error alone — `0.488 m` for the worst
+  release whose two errors agree, and that even that worst case cannot by itself throw
+  a called draw out of the house. The same seed replays the same release and the same
+  rest position.
 - The widget's landmarks are derived, not drawn: the hog marker sits at
   `hogFarZ - hackZ + stoneRadius`, the tee marker 30 m from the hack, the 12-foot
   ring at 1.83 m, and the "too light" shading stops exactly at the hog line.
@@ -520,48 +522,67 @@ from Node.
 | release | weight | handle error | line error at the end of this throw |
 |---|---|---|---|
 | good | 50 | ±0.10 of a turn | none |
-| ok | 25 | ±0.10 | ±5 cm |
-| mediocre | 12 | ±0.20 | ±5 cm |
-| bad | 12 | ±0.20 | ±10 cm |
+| ok | 25 | ±0.20 | ±10 cm |
+| mediocre | 12 | ±0.40 | ±10 cm |
+| bad | 12 | ±0.40 | ±20 cm |
 
 Those weights sum to 99, so they are used as *weights* and normalised rather than read
-as percentages: the ratio is exactly the one above and no unclaimed 1% lands somewhere.
+as percentages: the ratio is exactly the intended one and no unclaimed 1% lands
+somewhere. The spans are a separate decision, and they were raised on purpose: the first
+version of this table (±0.1 of a handle, ±5 cm, ±10 cm) turned out to be a difference
+nobody could feel against a house 3.66 m wide, so every span on a tier below a clean
+release was doubled. The clean tier keeps its small handle jitter and no line error at
+all — the distance between "clean" and "merely acceptable" is the whole point of the
+table, so it is deliberately wide.
 
 **The centimetres, as an angle.** physics.js states its own sensitivity in `solveAim`:
 `dx/daim ≈ −run length`. The angle for a wanted offset is therefore
-`atan(offset / run)`, and at the standard line — a 30 m draw, hack to button — 5 cm is
-**0.0955°** and 10 cm is **0.1910°**. On a raise the same tier is larger in degrees and
-identical in centimetres: 0.1432° at 20 m is the same 5 cm at the end of *that* line.
-The `run` used is the unbrushed distance of the weight being thrown
-(`distanceForPower`, the inverse of `powerForDistance`), because that is the line the
-preview and the miniature draw. That the model delivers what it promises is measured
-rather than claimed in prose: at 30 m and at 20 m, with and without a ±2 turn, a 5 cm
-error moves the resting point by `0.0499 m` and a 10 cm error by `0.0999 m`.
+`atan(offset / run)`, and at the standard line — a 30 m draw, hack to button — 10 cm is
+**0.1910°** and 20 cm is **0.3820°**. On a raise the same tier is larger in degrees and
+identical in centimetres: 0.2865° and 0.5729° at 20 m are the same 10 cm and 20 cm at
+the end of *that* line. The `run` used is the unbrushed distance of the weight being
+thrown (`distanceForPower`, the inverse of `powerForDistance`), because that is the line
+the preview and the miniature draw. That the model delivers what it promises is measured
+rather than claimed in prose: at 30 m and at 20 m, with and without a ±2 turn, a 10 cm
+error moves the resting point by `0.0999 m` and a 20 cm error by `0.1998 m`.
 
-**The handle half is bigger than it looks.** Curl is linear in `spin`, and one handle
-level is worth 0.725 m of arc at draw weight, so ±0.1 of handle is about 7 cm of line
-and ±0.2 about 14 cm. Both halves of the table in the same direction put a *bad*
-release **0.244 m** off the line at a draw; in opposite directions they very nearly
-cancel — `0.045 m`. That is not a defect in the model, it is what a release is:
-sometimes the two errors are the same error. The handle error is capped at the
+**The handle half is the larger half, and that is a property of curl.** One handle level
+is worth 0.724 m of arc at draw weight — the calibrated 1.45 m of a ±2 turn, measured as
+`0.7242 m` per level — so ±0.2 of handle is `14.5 cm` of line by itself and ±0.4 is
+`29 cm`. Both halves of the table agreeing put the worst release the game can roll
+**0.488 m** off the line at a draw; in opposite directions they very nearly cancel —
+`0.09 m`. That is not a defect in the model, it is what a release is: sometimes the two
+errors are the same error. The handle error is capped at the
 calibrated range rather than left to run past it, because the curl law is stated *per
 turn*: a stone already asked for ±3 can therefore only be delivered with less handle
 than the player asked for, which is also the honest direction for a maximum turn.
 
+**What it does to a shot, measured.** 4 000 rolls of a called button draw, measured
+against where the clean delivery would have stopped: mean miss `7.9 cm`, `84%` inside
+15 cm (the button itself), `97%` inside 30 cm, nothing worse than `50 cm`. Even the
+worst release the table can produce cannot, on its own, throw a called draw out of the
+house — its whole cost is in *precision*: whether a freeze freezes, whether a raise
+slips a guard by ten centimetres or by twenty, whether a hit lands on the nose. That
+boundary is asserted (`0.488 m` against a house radius of `1.83 m`), because a release
+table that decided results by itself would be commentating on the wrong thing.
+
 **What it never touches is the weight.** No tier has a power term; the stone goes
 exactly as far as the meter stopped. That is deliberate — weight is the one part of the
 shot the interface can measure *for* you — and the brief's acceptance item 2 asks only
-that the arc "roughly predicts" the path, which a 10 cm worst case at 30 m does.
+that the arc "roughly predicts" the path, which 20 cm at 30 m does.
 
-**This is not the CPU's error model, and the two are checked against each other.** A
-CPU throw is made imprecise by `DIFFICULTY` in ai.js — aim noise, weight noise, a
-chance of the wrong handle — which models a plan chosen as well as a stone thrown.
-[tests/matchtest.mjs](tests/matchtest.mjs) group 9 keeps them honest about each other:
-the worst line a human release can produce (0.191°) is still tighter than a NORMAL
-CPU's aim noise (±0.24°), the average human line error is about eight times smaller
-than NORMAL's, and the weight noise belongs to the CPU alone. Without that check,
-"NORMAL loses to a determined human" would quietly become a claim about a superhuman
-stand-in.
+**This is not the CPU's error model, and the expected comparison is the one that
+matters.** A CPU throw is made imprecise by `DIFFICULTY` in ai.js — aim noise, weight
+noise, a chance of the wrong handle — which models a plan chosen as well as a stone
+thrown. [tests/matchtest.mjs](tests/matchtest.mjs) group 9 keeps the two honest about
+each other on the only basis that is fair to both: a player's *expected* line error
+across a match of throws is about `8 cm` at 30 m (line and handle together, using the
+measured 0.724 m per level), where a NORMAL CPU is off its line by `13 cm` on every
+single throw, and the weight noise belongs to the CPU alone. The table's *worst* line
+(0.382°) is now wider than a NORMAL CPU's per-throw aim noise (±0.24°) — a direct
+consequence of doubling the spans, and recorded by an assertion so that it is met as a
+decision rather than as a surprise. Without these checks, "NORMAL loses to a determined
+human" would quietly become a claim about a superhuman stand-in.
 
 **Determinism is not lost.** The world still has no random term, and the fixed-step
 simulation still replays bit for bit — that is asserted, not assumed. The roll comes
@@ -608,4 +629,9 @@ second time on a CPU delivery, and never while the miniature is being fed.
   holds Space along the whole delivery. `matchtest` models exactly that stand-in
   — it picks the obvious shot, chases the game, calibrates its weight and line
   against its own brushed delivery, and takes three of the twelve matches it plays; it
-  never runs a shot search, which is the difference the ladder measures.
+  never runs a shot search, which is the difference the ladder measures. The human at
+  the other end of that claim is no longer exempt either — a delivery in the game
+  carries the release spread described above — which is why group 9 asserts the
+  comparison that actually matters instead of trusting it: a player's *expected* line
+  error across a match of throws (about 8 cm at 30 m, line and handle together) against
+  a NORMAL CPU's on every throw (13 cm).
