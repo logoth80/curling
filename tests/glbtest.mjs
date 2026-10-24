@@ -245,7 +245,7 @@ group('1. Coordinate contract: Y-up, long axis on Z, house on the game tee');
   }));
 }
 
-group('2. Stone contract: bottom-centre origin, named handle, size, triangle budget');
+group('2. Stone contract: bottom-centre origin, named handle, size, handle shape, triangle budget');
 {
   for (const f of ['stone_red.glb', 'stone_yellow.glb']) {
     const s = loaded[f];
@@ -262,6 +262,19 @@ group('2. Stone contract: bottom-centre origin, named handle, size, triangle bud
     const grip = s.parts.find(p => p.name.startsWith('handle_'));
     check(`${f}: handle sits on top of the granite`, grip && grip.min[1] > SHEET.stoneHeight * 0.8,
       grip ? `handle base y=${grip.min[1].toFixed(3)}, body top y=${body.max[1].toFixed(3)}` : 'missing');
+    // Shape, not only presence. A stone read at 30 pixels tall still has to look
+    // like a curling stone: an arch a hand can go through, standing clear of the
+    // granite, and reaching across the cap rather than sitting on it as a knob.
+    const every = s.parts.filter(p => p.name.startsWith('handle_'));
+    const gripPart = s.parts.find(p => p.name === 'handle_grip');
+    const capPart = s.parts.find(p => p.name === 'handle_cap');
+    const stands = Math.max(...every.map(p => p.max[1])) - body.max[1];
+    check(`${f}: the handle stands up to be gripped (0.04-0.08 m above the granite)`,
+      stands >= 0.04 && stands <= 0.08, `${stands.toFixed(3)} m above the body`);
+    const span = gripPart ? Math.max(...extent(gripPart).filter((_, i) => i !== 1)) : 0;
+    check(`${f}: the grip reaches across the cap instead of sitting on it as a knob`,
+      !!gripPart && !!capPart && span >= extent(capPart)[0] * 0.45,
+      gripPart && capPart ? `grip spans ${span.toFixed(3)} m against a cap radius of ${(extent(capPart)[0] / 2).toFixed(3)} m` : 'handle_grip/handle_cap missing');
     check(`${f}: within the 2000 triangle budget`, s.total <= 2000, `${s.total} tris`);
 
     const json = s.json;

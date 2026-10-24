@@ -1,0 +1,59 @@
+{
+  "glb": "assets/stone_red.glb",
+  "objects": [
+    "handle_cap",
+    "handle_grip",
+    "stone_body"
+  ],
+  "meshes": 3,
+  "side_profile": {
+    "camera": "ORTHO",
+    "loc": [
+      2.0,
+      0.0,
+      0.1
+    ],
+    "pixels": [
+      1000,
+      620
+    ],
+    "ortho_scale": 0.34,
+    "lens_mm": null,
+    "bytes": 680509
+  },
+  "photo_view": {
+    "camera": "PERSP",
+    "loc": [
+      0.62,
+      0.22,
+      0.34
+    ],
+    "pixels": [
+      1000,
+      640
+    ],
+    "ortho_scale": null,
+    "lens_mm": 50,
+    "bytes": 701220
+  },
+  "from_above": {
+    "camera": "ORTHO",
+    "loc": [
+      0.0,
+      0.0,
+      1.2
+    ],
+    "pixels": [
+      700,
+      700
+    ],
+    "ortho_scale": 0.34,
+    "lens_mm": null,
+    "bytes": 540356
+  },
+  "images": [
+    "blender/preview/handle_side_profile.png",
+    "blender/preview/handle_photo_view.png",
+    "blender/preview/handle_from_above.png"
+  ]
+}

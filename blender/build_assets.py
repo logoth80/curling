@@ -263,6 +263,105 @@ def lathe(name, profile, segs, mat):
     return ob
 
 
+def sweep(name, spine, width, thick, mat, rings=20, cross=10, power=0.62, taper=None):
+    """Sweep a flattened-oval section along a spine given as (y, z) control
+    points, so a moulded grip can be one continuous part instead of a stack of
+    revolved pucks. The section is a superellipse: power < 1 flattens the faces
+    while keeping the edges round, which is what a handle is cast like so a
+    gloved hand can hold it without winding up the stone. The section stays
+    square to the spine, so the grip keeps its thickness through the bend.
+
+    `taper` is a list of (fraction along the spine, scale) pairs, linearly
+    interpolated: a real grip narrows toward its free end."""
+    from mathutils import Vector
+    from mathutils.geometry import interpolate_bezier
+
+    # Catmull-Rom through the control points, drawn as a chain of Beziers whose
+    # handles come from the neighbouring control points.
+    pts = []
+    n = len(spine)
+    per = max(2, (rings - 1) // max(1, n - 1))
+    for i in range(n - 1):
+        p0 = spine[i - 1] if i > 0 else (2 * spine[i][0] - spine[i + 1][0], 2 * spine[i][1] - spine[i + 1][1])
+        p1, p2 = spine[i], spine[i + 1]
+        p3 = spine[i + 2] if i + 2 < n else (2 * spine[-1][0] - spine[-2][0], 2 * spine[-1][1] - spine[-2][1])
+        c1 = (p1[0] + (p2[0] - p0[0]) / 6.0, p1[1] + (p2[1] - p0[1]) / 6.0)
+        c2 = (p2[0] - (p3[0] - p1[0]) / 6.0, p2[1] - (p3[1] - p1[1]) / 6.0)
+        seg = interpolate_bezier(Vector(p1), Vector(c1), Vector(c2), Vector(p2), per + 1)
+        # Blender 5.x hands back Vectors; older releases wrapped them.
+        got = [v if hasattr(v, 'length') else v.co for v in seg]
+        pts.extend(got[:-1] if i < n - 2 else got)
+    total = len(pts)
+
+    def scale_at(i):
+        if not taper:
+            return 1.0
+        f = i / (total - 1.0)
+        prev, nxt = taper[0], taper[-1]
+        for a, b in zip(taper, taper[1:]):
+            if a[0] <= f <= b[0]:
+                k = 0.0 if b[0] == a[0] else (f - a[0]) / (b[0] - a[0])
+                return a[1] + (b[1] - a[1]) * k
+        return prev[1] if f < taper[0][0] else nxt[1]
+
+    bm = bmesh.new()
+    rows = []
+    for i, p in enumerate(pts):
+        t = (pts[min(i + 1, total - 1)] - pts[max(i - 1, 0)])
+        if t.length < 1e-9:
+            t = Vector((0.0, 1.0))
+        t.normalize()
+        nrm = Vector((-t.y, t.x))             # in the spine's own Y-Z plane
+        k = scale_at(i)
+        w, h = 0.5 * width * k, 0.5 * thick * k
+        row = []
+        for j in range(cross):
+            a = 2.0 * math.pi * j / cross
+            ca, sa = math.cos(a), math.sin(a)
+            # across the run is world X (the spine lies in the x = 0 plane);
+            # along it is the section normal in the spine's own Y-Z plane
+            ux = math.copysign(1.0, ca) * abs(ca) ** power * w
+            un = math.copysign(1.0, sa) * abs(sa) ** power * h
+            row.append(bm.verts.new((ux, p.x + nrm.x * un, p.y + nrm.y * un)))
+        rows.append(row)
+    for i in range(total - 1):
+        A, B = rows[i], rows[i + 1]
+        for j in range(cross):
+            bm.faces.new((A[j], A[(j + 1) % cross], B[(j + 1) % cross], B[j]))
+
+    # The ends: a vertex pushed a little along the run so the free end of a grip
+    # reads as rounded rather than sliced off.
+    for i, d in ((0, -1.0), (total - 1, 1.0)):
+        t = (pts[min(i + 1, total - 1)] - pts[max(i - 1, 0)])
+        if t.length < 1e-9:
+            continue
+        t.normalize()
+        k = scale_at(i)
+        tip = pts[i] + t * (0.45 * thick * k * d)
+        v = bm.verts.new((0.0, tip.x, tip.y))
+        row = rows[i]
+        for j in range(cross):
+            if d < 0:
+                bm.faces.new((v, row[(j + 1) % cross], row[j]))
+            else:
+                bm.faces.new((v, row[j], row[(j + 1) % cross]))
+
+    # UVs along the run and around the section: the part carries no texture, but
+    # the asset contract says a mesh has a UV layer, and one costs nothing here.
+    uv = bm.loops.layers.uv.new('UVMap')
+    for i, f in enumerate(bm.faces):
+        for j, loop in enumerate(f.loops):
+            loop[uv].uv = (i / (total - 1.0), j / 4.0)
+
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me); bm.free()
+    ob = bpy.data.objects.new(name, me)
+    bpy.context.collection.objects.link(ob)
+    if mat:
+        me.materials.clear(); me.materials.append(mat)
+    return ob
+
+
 def parent(child, parent_ob):
     child.parent = parent_ob
     child.matrix_parent_inverse = parent_ob.matrix_world.inverted()
@@ -544,10 +643,153 @@ STONE_PROFILE = [
 ]
 
 
+# The handle, read off a photograph of two real stones rather than invented. What
+# makes a curling handle recognisable is not a knob on top of the granite; it is
+# two pieces that meet: a moulded cap that hooks over the shoulder of the stone,
+# wider than the granite's top face so its edge stands proud of it, and one
+# continuous gooseneck that leaves the back of that cap, runs forward over the
+# top, and curls down at its free end to stop just above the cap again.
+#
+# Every number is a proportion measured in the photo and then scaled by STONE_R
+# or STONE_H, so the handle keeps its shape if the body ever changes:
+#   cap outer radius      0.77 of the body's radius (the photo's caps measure
+#                         0.72-0.90 across the two stones shown, depending on the
+#                         angle they are seen at)
+#   cap's lower edge      0.91 of the granite's height, where its skirt grips the
+#                         shoulder and the lip overhangs it by about 3 mm
+#   cap dome              0.078 of the granite's height above the stone's top
+#   the gooseneck's rise   out of the cap near its rear rim, 0.55-0.63 of the body
+#                         radius behind the centre, steeply -- measured off both
+#                         handles in the photo, which agree on this
+#   its highest point     1.37 of the granite's height, behind the centre: the
+#                         arch leans, because the handle is meant to be held from
+#                         one side. The bar's own thickness puts the top of the
+#                         handle 0.055-0.065 m above the granite, which is what
+#                         the photo measures and what a real delivered stone does
+#   its free end          0.43 of the body's radius in front, curling down to end
+#                         in the cap rather than hanging above it or reaching past
+#                         it, which is how both handles in the photo finish
+#   the bar's section     0.32 wide x 0.24 thick, in units of the body radius.
+#                         The photo measures the bar's thickness at 0.15-0.18 of
+#                         its own cap width: half that is what made the first
+#                         model read as a bent rod instead of a moulded handle.
+#                         Wide and flat so a gloved hand cannot wind the stone,
+#                         and only slightly narrower at the free end, so that end
+#                         reads blunt, as a cast handle's does.
+HANDLE_CAP_PROFILE = [
+    (0.000 * STONE_R, 0.985 * STONE_H),   # under the cap, buried in the stone
+    (0.420 * STONE_R, 0.985 * STONE_H),
+    (0.700 * STONE_R, 0.915 * STONE_H),   # following the granite's shoulder down
+    (0.765 * STONE_R, 0.910 * STONE_H),   # the lip, standing proud of the stone
+    (0.770 * STONE_R, 0.950 * STONE_H),
+    (0.730 * STONE_R, 1.000 * STONE_H),
+    (0.650 * STONE_R, 1.035 * STONE_H),
+    (0.480 * STONE_R, 1.060 * STONE_H),
+    (0.270 * STONE_R, 1.075 * STONE_H),
+    (0.000 * STONE_R, 1.078 * STONE_H),
+]
+
+# (y, z) control points of the gooseneck's spine, in the handle's own plane. The
+# first point sits inside the cap, so the grip is moulded out of it rather than
+# balanced on top of it. The arch leans: rise at the back, high point behind the
+# centre, and only then a run forward that turns down above the cap. A spine that
+# climbs and falls evenly makes a teacup handle, which is the mistake this
+# replaces; both handles in the photo lean the same way.
+HANDLE_SPINE = [
+    (-0.55 * STONE_R, 1.02 * STONE_H),    # buried in the cap, near its rear rim
+    (-0.63 * STONE_R, 1.20 * STONE_H),    # rising steeply, not ramping
+    (-0.58 * STONE_R, 1.32 * STONE_H),
+    (-0.38 * STONE_R, 1.37 * STONE_H),    # the high point, behind the centre
+    (-0.10 * STONE_R, 1.37 * STONE_H),    # the run
+    (+0.14 * STONE_R, 1.35 * STONE_H),
+    (+0.36 * STONE_R, 1.22 * STONE_H),    # turning down above the cap, not past it
+    (+0.43 * STONE_R, 1.05 * STONE_H),    # and ending into it, as both do in the photo
+]
+
+# The section stays square to the spine, with its wide face level everywhere --
+# which is how a handle is cast, so that a hand on it does not wind the stone.
+# `power` shapes it: at 0.4 the boundary sits near a rounded rectangle, which is
+# what the reference's edges read as, while a value nearer 1 gives an oval that
+# looks like tubing once it is this thick.
+#
+# The scale along the run matters more than it looks: a handle is not a rod bent
+# into a curve. It is thickest where it leaves the cap, because that is where the
+# moulding carries the load into the cap, and it eases to its grip thickness along
+# the run. Sweeping a constant section makes a hoop sitting above the cap.
+HANDLE_SECTION = dict(width=0.32 * STONE_R, thick=0.24 * STONE_R, power=0.40,
+                      taper=[(0.0, 1.15), (0.25, 1.05), (0.65, 1.00), (1.0, 0.92)])
+
+
+def cap_top_z_at(radius):
+    """The cap's own upper surface at a given distance from the axis, read out of
+    HANDLE_CAP_PROFILE. Used to check that the gooseneck is rooted inside the cap
+    and that its free end stops above the cap, instead of hoping the two parts
+    meet."""
+    top = max(range(len(HANDLE_CAP_PROFILE)), key=lambda i: HANDLE_CAP_PROFILE[i][0])
+    chain = HANDLE_CAP_PROFILE[top:]        # from the widest point in over the top
+    for (r0, z0), (r1, z1) in zip(chain, chain[1:]):
+        if min(r0, r1) <= radius <= max(r0, r1):
+            k = 0.0 if r0 == r1 else (radius - r0) / (r1 - r0)
+            return z0 + (z1 - z0) * k
+    return chain[-1][1]
+
+
+def measure_handle(objs):
+    """Arithmetic on the handle as actually built, in the same proportions the
+    design above is stated in. If a number here moves, the shape moved."""
+    from mathutils import Vector
+    deps = bpy.context.evaluated_depsgraph_get()
+
+    def box(name):
+        ob = next(o for o in objs if o.name == name)
+        ev = ob.evaluated_get(deps)
+        pts = [ev.matrix_world @ Vector(c.co) for c in ev.data.vertices]
+        lo = [min(p[i] for p in pts) for i in range(3)]
+        hi = [max(p[i] for p in pts) for i in range(3)]
+        return lo, hi, pts
+
+    b_lo, b_hi, _ = box('stone_body')
+    c_lo, c_hi, _ = box('handle_cap')
+    g_lo, g_hi, g_pts = box('handle_grip')
+    body_d = max(b_hi[0] - b_lo[0], b_hi[1] - b_lo[1])
+    body_r = body_d / 2.0
+    run = max(g_hi[1] - g_lo[1], g_hi[0] - g_lo[0])
+    other = min(g_hi[1] - g_lo[1], g_hi[0] - g_lo[0])
+    # a gooseneck turns back down at its free end: how far the point furthest out
+    # from the axis sits below the highest point of the grip
+    far = max(g_pts, key=lambda p: abs(p.y))
+    # the bar's own cross-section, taken at the middle of its run where the spine
+    # is level and the slice measures thickness and width directly
+    gy = [p.y for p in g_pts]
+    g_lo_y, g_hi_y = min(gy), max(gy)
+    slice_mid = [p for p in g_pts
+                 if g_lo_y + 0.45 * (g_hi_y - g_lo_y) <= p.y <= g_lo_y + 0.55 * (g_hi_y - g_lo_y)]
+    root_r = abs(HANDLE_SPINE[0][0])
+    tip_r = abs(HANDLE_SPINE[-1][0])
+    return {
+        'body_diameter': round(body_d, 4),
+        'cap_diameter_over_body': round(max(c_hi[0] - c_lo[0], c_hi[1] - c_lo[1]) / body_d, 3),
+        'cap_lower_edge_over_stone_height': round(c_lo[2] / STONE_H, 3),
+        'cap_top_above_stone_top_m': round(c_hi[2] - STONE_H, 4),
+        'handle_top_over_stone_height': round(g_hi[2] / STONE_H, 3),
+        'handle_top_above_stone_top_m': round(g_hi[2] - STONE_H, 4),
+        'grip_run_m': round(run, 4),
+        'grip_run_over_body_radius': round(run / body_r, 3),
+        'grip_section_thickness_m': round(max(p.z for p in slice_mid) - min(p.z for p in slice_mid), 4),
+        'grip_section_width_m': round(max(p.x for p in slice_mid) - min(p.x for p in slice_mid), 4),
+        'grip_is_elongated': round(run / max(1e-6, other), 2),
+        'grip_free_end_drops_below_peak_m': round(g_hi[2] - far.z, 4),
+        'grip_tip_reach_over_cap_radius': round(tip_r / max(p[0] for p in HANDLE_CAP_PROFILE), 3),
+        'grip_root_is_under_cap_surface_m': round(cap_top_z_at(root_r) - HANDLE_SPINE[0][1], 4),
+        'grip_tip_clears_cap_by_m': round(HANDLE_SPINE[-1][1] - cap_top_z_at(tip_r), 4),
+    }
+
+
 def build_stone(col, col_name):
-    """Body + a child named 'handle'. Origin at the bottom centre of the body,
-    handle heights in absolute metres (a delivered stone is 114 mm of granite
-    with a moulded plastic handle on top)."""
+    """Body + a child named 'handle'. Origin at the bottom centre of the body;
+    the handle's own numbers are in HANDLE_CAP_PROFILE / HANDLE_SPINE above, as
+    proportions of the body (a delivered stone is 114 mm of granite with a
+    moulded cap and gooseneck on top)."""
     clear_objects()
     galb, gnrm = granite_maps()
     gran, nt, bsdf = principled('granite_%s' % col_name, base=(0.55, 0.56, 0.58, 1), rough=0.9, metal=0.04)
@@ -563,15 +805,11 @@ def build_stone(col, col_name):
     handle = bpy.data.objects.new('handle', None)
     bpy.context.collection.objects.link(handle)
 
-    cap = lathe('handle_cap', [(0.000, 0.100), (0.052, 0.101), (0.064, 0.104),
-                               (0.068, 0.112), (0.055, 0.121), (0.000, 0.125)], segs=24, mat=plastic)
-    grip = lathe('handle_grip', [(0.000, 0.127), (0.036, 0.129), (0.054, 0.138),
-                                 (0.051, 0.150), (0.026, 0.157), (0.000, 0.158)], segs=20, mat=plastic)
-    stem = box('handle_stem', 0.024, 0.085, 0.030, (0, 0, 0.116))
-    stem.data.materials.append(plastic)
-    for p in (cap, grip, stem):
+    cap = lathe('handle_cap', HANDLE_CAP_PROFILE, segs=24, mat=plastic)
+    grip = sweep('handle_grip', HANDLE_SPINE, mat=plastic, rings=28, cross=14, **HANDLE_SECTION)
+    for p in (cap, grip):
         parent(p, handle)
-    return [body, handle, cap, grip, stem]
+    return [body, handle, cap, grip]
 
 
 # --------------------------------------------------------------------- broom
@@ -715,6 +953,9 @@ def main():
         export_glb(objs, os.path.join(ASSETS, name))
         info = summary(objs)
         info['bytes'] = os.path.getsize(os.path.join(ASSETS, name))
+        if any(o.name == 'handle_cap' for o in objs):
+            # the handle's proportions, measured off the mesh that was built
+            info['handle'] = measure_handle(objs)
         report[name] = info
 
     report['_textures'] = sorted(f for f in os.listdir(TEX) if f.endswith('.png'))

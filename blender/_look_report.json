@@ -12,14 +12,14 @@
     "blender/preview/glb_stone_closeup.png"
   ],
   "sizes": {
-    "glb_aim_from_hack.png": 684650,
-    "glb_track_midice.png": 727177,
-    "glb_summary_from_back.png": 717383,
-    "glb_title_view.png": 701410,
-    "glb_plan_over_house.png": 668044,
+    "glb_aim_from_hack.png": 684591,
+    "glb_track_midice.png": 728660,
+    "glb_summary_from_back.png": 717611,
+    "glb_title_view.png": 701644,
+    "glb_plan_over_house.png": 668110,
     "glb_plan_as_it_was.png": 626641,
-    "glb_hold_after_shot.png": 738177,
-    "glb_stone_closeup.png": 774668
+    "glb_hold_after_shot.png": 739579,
+    "glb_stone_closeup.png": 777643
   },
   "look": {
     "aim_from_hack": {
@@ -36,7 +36,7 @@
       "black_frac": 0.0,
       "ice_region_mean": 0.441,
       "ice_region_clip": 0.0,
-      "colour_std": 0.196
+      "colour_std": 0.197
     },
     "summary_from_back": {
       "mean": 0.321,
@@ -71,12 +71,12 @@
       "colour_std": 0.217
     },
     "hold_after_shot": {
-      "mean": 0.415,
+      "mean": 0.414,
       "clip_frac": 0.0,
       "black_frac": 0.0,
       "ice_region_mean": 0.416,
       "ice_region_clip": 0.0,
-      "colour_std": 0.162
+      "colour_std": 0.163
     },
     "stone_closeup": {
       "mean": 0.368,

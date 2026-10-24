@@ -1,0 +1,121 @@
+{
+  "reference": "blender/reference/handle_reference.webp",
+  "model": "blender/preview/handle_photo_view.png",
+  "samples": 41,
+  "outline_tolerance": 0.11,
+  "peak_edge": 0.42,
+  "free_end_drop": 0.1,
+  "reference_caps_on_body": [
+    0.817,
+    0.81
+  ],
+  "reference_handles_differ_by": 0.022,
+  "masks": [
+    "blender/preview/handle_ref_mask.png",
+    "blender/preview/handle_model_mask.png"
+  ],
+  "rows": [
+    {
+      "source": "reference left",
+      "handle_w_px": 223,
+      "handle_h_px": 96,
+      "aspect": 0.43,
+      "body_aspect": 0.736,
+      "cap_over_body": 0.817,
+      "shape": {
+        "peak_position": 0.25,
+        "free_end_drop": 0.823
+      },
+      "outline_deviation_vs_model": 0.107
+    },
+    {
+      "source": "reference right",
+      "handle_w_px": 253,
+      "handle_h_px": 108,
+      "aspect": 0.427,
+      "body_aspect": 0.719,
+      "cap_over_body": 0.81,
+      "shape": {
+        "peak_position": 0.6,
+        "free_end_drop": 0.815
+      },
+      "outline_deviation_vs_model": 0.1
+    },
+    {
+      "source": "model (this build)",
+      "handle_w_px": 448,
+      "handle_h_px": 224,
+      "aspect": 0.5,
+      "body_aspect": 0.64,
+      "cap_over_body": null,
+      "shape": {
+        "peak_position": 0.3,
+        "free_end_drop": 0.621
+      },
+      "outline_deviation_vs_model": null
+    }
+  ],
+  "checks": [
+    [
+      true,
+      "the render looks at the stone from near the angle the reference is taken at",
+      "body height over width: 0.64 in the render, 0.73 in the reference"
+    ],
+    [
+      true,
+      "the modelled handle outline matches the reference (reference left)",
+      "mean deviation 0.107 of the handle height, limit 0.11 (the reference handles differ from each other by 0.022)"
+    ],
+    [
+      true,
+      "the modelled handle outline matches the reference (reference right)",
+      "mean deviation 0.100 of the handle height, limit 0.11 (the reference handles differ from each other by 0.022)"
+    ],
+    [
+      true,
+      "the handle leans: its high point sits near one end, not centred",
+      "high point at 0.30 along the handle"
+    ],
+    [
+      true,
+      "the free end turns down below the level of the run",
+      "free end 0.62 of the handle height below the run"
+    ],
+    [
+      true,
+      "the cap and grip together are wider than they are tall",
+      "aspect height/width = 0.50"
+    ],
+    [
+      true,
+      "the cap sits as wide against the stone as the reference measures (0.74-0.89)",
+      "cap 0.77 of the body diameter"
+    ],
+    [
+      true,
+      "the handle stands as far above the stone as the reference shows (0.045-0.075 m)",
+      "0.060 m above the granite"
+    ],
+    [
+      true,
+      "the bar is as thick as the reference measures it (0.028-0.042 m)",
+      "0.035 m through"
+    ],
+    [
+      true,
+      "the grip is rooted in the cap rather than standing over it",
+      "root is 0.0034 m under the cap surface"
+    ],
+    [
+      true,
+      "the free end curls down into the cap instead of hanging above it",
+      "tip ends -0.0015 m from the cap surface at its own radius"
+    ],
+    [
+      true,
+      "the free end stays inside the cap instead of reaching past its edge",
+      "tip at 0.56 of the cap radius"
+    ]
+  ],
+  "failed": 0
+}

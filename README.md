@@ -223,7 +223,8 @@ release.js      pure logic: the release-quality table a human delivery is rolled
 serve.mjs       dev server: serves this folder over http:// and opens the page — not part of the game
 play.cmd        the same thing as a double-click on Windows
 assets/         six GLB assets + generated textures (assets/tex)
-blender/        the authoring and visual-gate scripts, plus their reports
+blender/        the authoring and visual-gate scripts, their reports, and the
+                reference photograph the stone handle was measured from
 tests/          four Node suites, plus svg_peek.py to look at the widget
 ```
 
@@ -239,7 +240,7 @@ creeps into the renderer.
 node tests/selftest.mjs    # 78 checks — physics, calibration, rules, scoring, the weight meter, the brushing model, the release table
 node tests/matchtest.mjs   # 29 checks — full matches, CPU strength ladder, timing, the two error models kept honest
 node tests/uitest.mjs      # 118 checks — DOM ids, key map, phases, cameras, the weight miniature, where a release may be rolled, the sweeper's stance and limbs (its joint solver is run, and every part the pose names is one the rig builds), end resets, asset paths, import boundary
-node tests/glbtest.mjs     # 96 checks — the shipped GLBs against the game's coordinate contract and camera framing
+node tests/glbtest.mjs     # 100 checks — the shipped GLBs against the game's coordinate contract, the handle's shape, and camera framing
 ```
 
 All four pass. Highlights of what they pin down:
@@ -324,12 +325,12 @@ exported Y-up at 1 unit = 1 m:
 | File | Tris | Notes |
 | --- | ---: | --- |
 | `sheet.glb` | 380 | ice, apron to the end dasher, floor decks, painted hog/tee/back/centre lines, four house discs, two hack fixtures |
-| `stone_red.glb`, `stone_yellow.glb` | 876 each | granite body (0.29 m ⌀ × 0.114 m, roughness 0.90) + coloured plastic handle (roughness 0.50) on a node named `handle`, origin at the bottom centre |
+| `stone_red.glb`, `stone_yellow.glb` | 1512 each | granite body (0.29 m ⌀ × 0.114 m, roughness 0.90) + coloured plastic handle (roughness 0.50) on a node named `handle` — a moulded cap over the granite shoulder and a leaning gooseneck grip, from the proportions measured off [blender/reference/handle_reference.webp](blender/reference/handle_reference.webp); origin at the bottom centre |
 | `broom.glb` | 148 | 1.28 m broom for the sweeper avatar |
 | `hack.glb` | 84 | the foot hack |
 | `arena.glb` | 588 | dasher boards, decks, stands, banners, trusses and ceiling banks |
 
-The six files come to 1.2 MB with their textures embedded, which is what the
+The six files come to 1.3 MB with their textures embedded, which is what the
 browser actually downloads; `glbtest` fails the suite above 3 MB. No non-standard
 glTF extensions are used beyond `KHR_materials_clearcoat` on the ice and
 `KHR_materials_emissive_strength` on the arena lamps, both of which Three.js
@@ -347,6 +348,54 @@ textures and Principled values but drops procedural node chains, so every map is
 real image and every painted part carries an explicit UV layer — a mesh with a
 texture and no UVs loses that texture on export. The script writes
 `blender/_build_report.json` with triangle counts, part lists and byte sizes.
+
+### The handle was measured off a photograph, and says so
+
+The handle is the one part of this set designed against a reference rather than from
+memory: a product photograph of two real stones, kept in the repo at
+[blender/reference/handle_reference.webp](blender/reference/handle_reference.webp)
+so the comparison stays reproducible. Its proportions were read off that photo with
+PIL and written into the build as numbers that carry their source: the cap spans
+0.72-0.90 of the body's diameter, its lower edge sits at 0.91 of the granite's
+height, the bar is 0.15-0.18 of the cap's width through (33-40 mm), the arch leans
+because a handle is meant to be held from one side, and the free end curls down into
+the cap instead of reaching past it. `HANDLE_CAP_PROFILE`, `HANDLE_SPINE` and
+`HANDLE_SECTION` in [blender/build_assets.py](blender/build_assets.py) are those
+numbers; the grip is a swept section (`sweep()`) along a spline, not a bent tube.
+
+The build then measures what it made, off the evaluated mesh, and puts it in the
+report under `handle`: the cap at 0.77 of the body diameter, the top of the handle
+0.060 m above the granite, the bar 0.035 m through, its root 3.4 mm under the cap
+surface so it is joined rather than floating, its tip ending 1.5 mm inside the cap
+at 0.56 of that cap's radius.
+
+Two views judge the shape, because a handle lies in one plane and a game screenshot
+almost never looks along it:
+
+```sh
+blender --background --factory-startup --python blender/preview_handle.py
+python blender/check_handle.py            # needs Pillow and numpy
+```
+
+The first re-imports the shipped GLB and renders three frames into
+`blender/preview/`: a true side elevation (looking along world X, the only direction
+in which the gooseneck's profile is undistorted), the photograph's own low framing
+with the handle's run lying across the frame, and a top view. The second segments
+colour out of the reference and out of that render, reduces each handle to an
+outline of 41 columns, and compares the model against *both* reference handles in
+either facing. It measures the reference against itself too — the two handles in
+that photo differ from each other by 0.022 of their own height, which is the floor
+under any threshold used here — and refuses the comparison outright if the render is
+not looking at the stone from near the same angle the photo was taken at (the
+body's projected height in frame says whether it is).
+
+Twelve checks pass. The outlines land at 0.10-0.11 against a 0.11 limit, which is a
+pass and not by much, and the residual is real rather than measurement noise: the
+reference's grip is flatter, and its free end comes down further than this one's.
+[tests/glbtest.mjs](tests/glbtest.mjs) holds the shipped file to the coarse version
+of the same claims — the handle standing 0.04-0.08 m clear of the granite, and the
+grip reaching across the cap rather than sitting on it as a knob — so a future
+rebuild that turns it back into a stub fails a suite rather than a taste test.
 
 ### Visual gate
 

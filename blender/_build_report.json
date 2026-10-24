@@ -21,26 +21,58 @@
     "bytes": 407748
   },
   "stone_red.glb": {
-    "tris": 876,
+    "tris": 1512,
     "parts": [
       "handle",
       "handle_cap",
       "handle_grip",
-      "handle_stem",
       "stone_body"
     ],
-    "bytes": 355016
+    "bytes": 397152,
+    "handle": {
+      "body_diameter": 0.29,
+      "cap_diameter_over_body": 0.77,
+      "cap_lower_edge_over_stone_height": 0.91,
+      "cap_top_above_stone_top_m": 0.0089,
+      "handle_top_over_stone_height": 1.529,
+      "handle_top_above_stone_top_m": 0.0603,
+      "grip_run_m": 0.187,
+      "grip_run_over_body_radius": 1.289,
+      "grip_section_thickness_m": 0.0348,
+      "grip_section_width_m": 0.0469,
+      "grip_is_elongated": 3.5,
+      "grip_free_end_drops_below_peak_m": 0.041,
+      "grip_tip_reach_over_cap_radius": 0.558,
+      "grip_root_is_under_cap_surface_m": 0.0034,
+      "grip_tip_clears_cap_by_m": -0.0015
+    }
   },
   "stone_yellow.glb": {
-    "tris": 876,
+    "tris": 1512,
     "parts": [
       "handle",
       "handle_cap",
       "handle_grip",
-      "handle_stem",
       "stone_body"
     ],
-    "bytes": 355020
+    "bytes": 397156,
+    "handle": {
+      "body_diameter": 0.29,
+      "cap_diameter_over_body": 0.77,
+      "cap_lower_edge_over_stone_height": 0.91,
+      "cap_top_above_stone_top_m": 0.0089,
+      "handle_top_over_stone_height": 1.529,
+      "handle_top_above_stone_top_m": 0.0603,
+      "grip_run_m": 0.187,
+      "grip_run_over_body_radius": 1.289,
+      "grip_section_thickness_m": 0.0348,
+      "grip_section_width_m": 0.0469,
+      "grip_is_elongated": 3.5,
+      "grip_free_end_drops_below_peak_m": 0.041,
+      "grip_tip_reach_over_cap_radius": 0.558,
+      "grip_root_is_under_cap_surface_m": 0.0034,
+      "grip_tip_clears_cap_by_m": -0.0015
+    }
   },
   "broom.glb": {
     "tris": 148,
