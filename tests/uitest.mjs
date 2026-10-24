@@ -225,6 +225,174 @@ group('2c. The release belongs to the throw, not to the aim');
     /distanceForPower/.test(releaseSrc) && !/V_MAX|A_BASE|Math\.sqrt|2 \* a/.test(releaseSrc));
 }
 
+group('2d. The sweeper works the line side-on, not face-first');
+{
+  // The figure is a stand-in drawn with primitives in the game layer (there is no
+  // sweeper asset, and the asset list above pins that), which means its shape is
+  // code and can be pinned like any other contract. The reported bug was that it
+  // read as a person running face-first down the line. What makes a sweeper read
+  // as a sweeper is written here: the body turned a quarter turn off the travel,
+  // feet apart along the path with the toes across it, hands on the broom that
+  // works the stone's own line, eyes on the stone.
+  const rig = bodyOf('buildSweeperRig'), pose = bodyOf('poseSweeper'), upd = bodyOf('updateSweeper');
+  const reach = +(js.match(/const SWEEP_REACH = ([\d.]+);/) || [])[1];
+  const standOff = +(upd.match(/addScaledVector\(right, ([\d.]+)\)/) || [])[1];
+  const gripHeights = js.match(/const BROOM_GRIP = \{ upper: ([\d.]+), lower: ([\d.]+) \}/);
+  const upper = gripHeights && +gripHeights[1], lower = gripHeights && +gripHeights[2];
+  const gaze = (js.match(/const SWEEP_GAZE = new THREE\.Vector3\(([-\d., ]+)\)/) || [])[1];
+  const gazeVec = gaze ? gaze.split(',').map(s => +s.trim()) : [];
+
+  check('the body is turned a quarter turn off the direction of travel, and only ever there',
+    /sweeper\.rotation\.y = Math\.atan2\(dir\.x, dir\.z\) \+ Math\.PI \/ 2;/.test(upd) &&
+    (js.match(/sweeper\.rotation\.y =/g) || []).length === 1,
+    `${(js.match(/sweeper\.rotation\.y =/g) || []).length} places set the figure's turn`);
+  check('feet apart along the path — that is the stance, not a stride across it',
+    /J\.footL\.set\(-0\.30 \+ slide/.test(pose) && /J\.footR\.set\(0\.30 \+ slide/.test(pose));
+  check('feet apart along the path and feet that move along it: a side-step cycle, not a frozen pose',
+    /const slide = 0\.\d+ \* shuffle/.test(pose) && /Math\.sin\(step\)/.test(pose) &&
+    /poseSweeper\(G\.now \* \(/.test(upd));
+  check('toes pointing across the path, which is what reads as a body square to the ice from any angle',
+    /BoxGeometry\(0\.10, 0\.06, 0\.22\)/.test(rig) &&
+    /P\.footL\.position\.set\(J\.footL\.x, J\.footL\.y - 0\.02, J\.footL\.z \+ 0\.07\)/.test(pose));
+  check('the broom works the stone\'s own line, so the spray lands where the sweeping is',
+    Number.isFinite(reach) && Number.isFinite(standOff) && Math.abs(reach - standOff) < 1e-9 && reach >= 0.3,
+    `reach ${reach} m against a body standing ${standOff} m off the line`);
+  check('both hands stay on the shaft, in order, well clear of the head of the broom',
+    upper > lower && lower > 0.3, `grips at ${lower} m and ${upper} m up the shaft`);
+  check('the arms follow the broom as it strokes, instead of hanging beside it',
+    /applyEuler\(broomHolder\.rotation\)/.test(pose) &&
+    /aim\(P\.upperArmTop, J\.shoulderTop, J\.elbowTop\)/.test(pose) &&
+    /grip\(BROOM_GRIP\.upper, J\.handTop\)/.test(pose));
+
+  // A capsule between two joints gets stretched when the joints are further apart
+  // than the capsule is long, and a stretched limb reads as a plank. So the knee
+  // and the elbow are solved for, and the bones have to be longer than the
+  // distance they are asked to span. blender/preview_figure.py measures this
+  // through the stroke; this pins that the code still asks the question.
+  const bones = js.match(/const LIMB = \{ thigh: ([\d.]+), shin: ([\d.]+), upper: ([\d.]+), lower: ([\d.]+) \}/);
+  const hipHeight = +(pose.match(/const hips = ([\d.]+)/) || [])[1];
+  check('knees and elbows are solved by geometry, not placed by hand',
+    /function twoSeg\(a, b, l1, l2, bend, out\)/.test(rig) &&
+    /const cos = clamp\(/.test(rig) &&
+    /twoSeg\(J\.hipL, J\.footL, LIMB\.thigh, LIMB\.shin, LIMB_BEND\.kneeL, J\.kneeL\)/.test(pose) &&
+    /twoSeg\(J\.shoulderTop, J\.handTop, LIMB\.upper, LIMB\.lower, LIMB_BEND\.armTop, J\.elbowTop\)/.test(pose) &&
+    !/J\.knee[LR]\.set\(/.test(pose) && !/J\.elbow(Top|Bot)\.set\(/.test(pose),
+    'a joint set by hand is a joint that does not follow the broom');
+  check('the legs have more bone than the crouch asks them to span, and the knee is a visible seam',
+    bones && hipHeight && +bones[1] + +bones[2] > hipHeight + 0.05 &&
+    /thighL: limb\(0\.085, LIMB\.thigh, mat\.trousers\)/.test(rig) &&
+    /shinL: limb\(0\.070, LIMB\.shin, mat\.socks\)/.test(rig),
+    `hip at ${hipHeight} m on ${bones ? +bones[1] + +bones[2] : '?'} m of leg`);
+
+  // Run the shipped solver rather than reading it. A joint placed by a formula
+  // that is subtly wrong looks plausible in a still frame and comes off the broom
+  // the moment the broom moves. What Blender measures is the whole figure through
+  // a stroke; what is worth pinning here is the arithmetic itself: a solved joint
+  // keeps both bones exactly their own length, bends toward the direction it was
+  // handed, and reports when the chain simply cannot reach.
+  const solver = (js.match(/function twoSeg\(a, b, l1, l2, bend, out\) \{[\s\S]*?\n  \}/) || [''])[0];
+  const clampSrc = (js.match(/const clamp = \(v, a, b\) => [^;]+;/) || [''])[0];
+  const vec = ([x, y, z]) => {
+    const o = { x, y, z };
+    o.subVectors = (p, q) => vecSet(o, p.x - q.x, p.y - q.y, p.z - q.z);
+    o.copy = (p) => vecSet(o, p.x, p.y, p.z);
+    o.multiplyScalar = (s) => vecSet(o, o.x * s, o.y * s, o.z * s);
+    o.addScaledVector = (p, s) => vecSet(o, o.x + p.x * s, o.y + p.y * s, o.z + p.z * s);
+    o.set = (x2, y2, z2) => vecSet(o, x2, y2, z2);
+    o.normalize = () => { const l = o.length() || 1; return vecSet(o, o.x / l, o.y / l, o.z / l); };
+    o.lengthSq = () => o.x * o.x + o.y * o.y + o.z * o.z;
+    o.length = () => Math.sqrt(o.lengthSq());
+    o.dot = (p) => o.x * p.x + o.y * p.y + o.z * p.z;
+    return o;
+  };
+  const vecSet = (o, x, y, z) => { o.x = x; o.y = y; o.z = z; return o; };
+  const dist = (p, q) => Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z);
+  let solve = null;
+  try {
+    solve = Function('d', 'u', 'pp', 'bb', `${clampSrc}\n${solver}\nreturn twoSeg;`)(
+      vec([0, 0, 0]), vec([0, 0, 0]), vec([0, 0, 0]), vec([0, 0, 0]));
+  } catch { /* reported by the check below */ }
+  const kneeOut = vec([0, 0, 0]);
+  // a real case from the stance: the far hip with that foot shuffled toward it
+  const hip = vec([0.12, 0.70, 0]), foot = vec([-0.14, 0.10, 0]);
+  const canReach = solve && solve(hip, foot, 0.40, 0.40, [-0.95, 0.0, 0.35], kneeOut);
+  const kneeOnLine = vec([0, 0, 0]);
+  const tooFar = vec([0.12, -1.20, 0]);
+  const canReachFar = solve && solve(hip, tooFar, 0.40, 0.40, [-0.95, 0.0, 0.35], kneeOnLine);
+  check('the shipped joint solver keeps both bones their own length, in reach and out of it',
+    solver && clampSrc && solve &&
+    Math.abs(dist(kneeOut, hip) - 0.40) < 1e-6 && Math.abs(dist(foot, kneeOut) - 0.40) < 1e-6 &&
+    Math.abs(dist(kneeOnLine, hip) - 0.40) < 1e-6,
+    `${solver ? 'upper bone ' + dist(kneeOut, hip).toFixed(4) + ' m, lower ' + dist(foot, kneeOut).toFixed(4) : 'solver not found'}`);
+  // How far the joint sits off the straight hip-to-foot line, and which way.
+  const alongFoot = vec([foot.x - hip.x, foot.y - hip.y, foot.z - hip.z]);
+  const toKnee = vec([kneeOut.x - hip.x, kneeOut.y - hip.y, kneeOut.z - hip.z]);
+  const tParam = (toKnee.x * alongFoot.x + toKnee.y * alongFoot.y + toKnee.z * alongFoot.z) / alongFoot.lengthSq();
+  const offLine = vec([
+    toKnee.x - alongFoot.x * tParam,
+    toKnee.y - alongFoot.y * tParam,
+    toKnee.z - alongFoot.z * tParam,
+  ]);
+  const handedBend = vec([-0.95, 0.0, 0.35]);
+  const bendOnLine = (handedBend.x * alongFoot.x + handedBend.y * alongFoot.y + handedBend.z * alongFoot.z) / alongFoot.lengthSq();
+  const bendAside = vec([
+    handedBend.x - alongFoot.x * bendOnLine,
+    handedBend.y - alongFoot.y * bendOnLine,
+    handedBend.z - alongFoot.z * bendOnLine,
+  ]);
+  check('and it bends the joint off the line in the direction it was handed, keeps it under the hip, and says when the chain cannot reach',
+    canReach === true && canReachFar === false &&
+    offLine.length() > 0.15 && offLine.dot(bendAside) > 0 && kneeOut.y < hip.y,
+    `knee ${(offLine.length() * 100).toFixed(0)} cm off the hip-to-foot line, on the side it was asked for; reach ${canReach}, and ${canReachFar} for a 1.9 m hip-to-foot`);
+  check('every arm is two segments joined at a solved elbow, ending on a grip',
+    /upperArmTop: limb\(0\.052, LIMB\.upper, mat\.jacket\)/.test(rig) &&
+    /foreArmTop: limb\(0\.044, LIMB\.lower, mat\.jacket\)/.test(rig) &&
+    /upperArmBot: limb\(0\.052, LIMB\.upper, mat\.jacket\)/.test(rig) &&
+    /foreArmBot: limb\(0\.044, LIMB\.lower, mat\.jacket\)/.test(rig) &&
+    /aim\(P\.foreArmTop, J\.elbowTop, J\.handTop\)/.test(pose) &&
+    /aim\(P\.foreArmBot, J\.elbowBot, J\.handBot\)/.test(pose) &&
+    bones && +bones[3] + +bones[4] > 0.5,
+    `${bones ? +bones[3] + +bones[4] : '?'} m of arm for a grip ${upper} m up the shaft`);
+  // A misspelled part or joint name is a crash inside the render loop, and the
+  // parts exist only as keys of two dictionaries built at startup, so nothing else
+  // here would notice one being invented by the pose code.
+  const declared = new Set();
+  const pDict = rig.match(/const P = \{([\s\S]*?)\n  \};/);
+  if (pDict) for (const km of pDict[1].matchAll(/(?:^|[,{\s])([A-Za-z]\w*)\s*:/g)) declared.add('P.' + km[1]);
+  const jList = rig.match(/const J = \{\};\s*for \(const k of \[([\s\S]*?)\]\)/);
+  if (jList) for (const nm of jList[1].matchAll(/'([A-Za-z]\w*)'/g)) declared.add('J.' + nm[1]);
+  const reached = new Set();
+  for (const src of [rig, pose, upd]) {
+    for (const mm of src.matchAll(/[^.\w](P|J)\.([A-Za-z]\w*)/g)) reached.add(mm[1] + '.' + mm[2]);
+  }
+  const undeclared = [...reached].filter(k => !declared.has(k));
+  check('every part and joint the pose reaches for is one the rig builds, so the render loop is never handed a typo',
+    pDict && jList && declared.size >= 30 && reached.size >= 25 && undeclared.length === 0,
+    undeclared.length ? 'not built: ' + undeclared.join(', ') : `${declared.size} declared, ${reached.size} reached, none missing`);
+  check('a knee that bends straight at the camera reads as a dot: the joints bend where the camera can see them',
+    /const LIMB_BEND = \{/.test(js) &&
+    /kneeL: \[-[\d.]+, 0\.0, [\d.]+\], kneeR: \[-[\d.]+, 0\.0, [\d.]+\]/.test(js) &&
+    /armTop: \[[\d.]+, -[\d.]+, [\d.]+\]/.test(js) && /armBot: \[-[\d.]+, -[\d.]+, [\d.]+\]/.test(js));
+  check('limbs are aimed between joints every frame, which is what lets the figure step at all',
+    /part\.quaternion\.setFromUnitVectors\(UP, n\)/.test(rig) &&
+    /aim\(P\.thighL, J\.hipL, J\.kneeL\)/.test(pose) &&
+    /part\.scale\.set\(1, len \/ part\.userData\.rest, 1\)/.test(rig));
+  check('the head looks back at the stone and down the ice, not along the body',
+    gazeVec.length === 3 && gazeVec[1] < 0 && gazeVec[2] > 0 && gazeVec[0] > 0 &&
+    Math.hypot(...gazeVec) > 0 && gazeVec[2] / Math.hypot(...gazeVec) <= Math.cos(Math.PI / 6) &&
+    /const HEAD_FORWARD = new THREE\.Vector3\(0, 0, 1\)/.test(js) &&
+    /rig\.head\.quaternion\.setFromUnitVectors\(HEAD_FORWARD, SWEEP_GAZE\)/.test(pose),
+    `gaze ${gazeVec}, ${(Math.acos(Math.min(1, gazeVec[2] / Math.hypot(...gazeVec))) * 180 / Math.PI).toFixed(0)}° off the body's facing`);
+  check('the bend belongs to the brushing, and does not carry over into the next delivery',
+    /const lean = 0\.56 \+ 0\.16 \* brush/.test(pose) &&
+    /\(1 - sweepPose\) \* 0\.03/.test(upd) &&
+    /if \(!show\) \{ sweepPose = 0; return; \}/.test(upd));
+  check('the figure wears the throwing team\'s colour, so whose sweeper it is is not a guess',
+    /rig\.mat\.jacket\.color\.setHex\(TEAM_COLOR\[d\.team\]/.test(upd));
+  check('and it is a stand-in drawn in the game layer: no sweeper asset, no new manifest entry',
+    !/assets\.sweeper|sweeper_[a-z]*\.glb/i.test(js) && /new THREE\.CapsuleGeometry/.test(rig));
+}
+
 group('3. HUD values agree with the rules module');
 {
   const spinBtns = [...html.matchAll(/class="slev" data-s="(-?\d+)"/g)].map(m => +m[1]);

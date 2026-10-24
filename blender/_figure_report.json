@@ -1,0 +1,775 @@
+{
+ "checks": [
+  {
+   "name": "neutral: the brush head is on the stone's line",
+   "ok": true,
+   "measured": "0.000 m off the line"
+  },
+  {
+   "name": "neutral: and ahead of the stone, not beside it",
+   "ok": true,
+   "measured": "1.29 m up the ice"
+  },
+  {
+   "name": "neutral: the body is off the line",
+   "ok": true,
+   "measured": "0.52 m off the line"
+  },
+  {
+   "name": "neutral: and on the far side from the camera that follows the play",
+   "ok": true,
+   "measured": "figure x -0.52, camera stands x +2.50"
+  },
+  {
+   "name": "neutral: feet apart along the path",
+   "ok": true,
+   "measured": "0.60 m apart up the ice, 0.00 m across"
+  },
+  {
+   "name": "neutral: with the toes pointing across it, not straddling the line",
+   "ok": true,
+   "measured": "0.00 m of straddle"
+  },
+  {
+   "name": "neutral: toes square to the ice lane",
+   "ok": true,
+   "measured": "0\u00b0 off across"
+  },
+  {
+   "name": "neutral: the head clears the shoulders instead of sitting inside them",
+   "ok": true,
+   "measured": "0.12 m above the shoulder line"
+  },
+  {
+   "name": "neutral: the head stays at a crouching height",
+   "ok": true,
+   "measured": "top of the head 1.21 m"
+  },
+  {
+   "name": "neutral: the head is turned toward the stone",
+   "ok": true,
+   "measured": "29\u00b0 from the line to the stone"
+  },
+  {
+   "name": "neutral: the legL can reach without being stretched",
+   "ok": true,
+   "measured": "0.67 m to span on 0.80 m of limb"
+  },
+  {
+   "name": "neutral: the legL is bent, not locked straight",
+   "ok": true,
+   "measured": "kneeL sits 0.215 m off the straight line"
+  },
+  {
+   "name": "neutral: the thighL hangs down from its root, not out sideways",
+   "ok": true,
+   "measured": "drops 0.27 m along a 0.40 m segment"
+  },
+  {
+   "name": "neutral: the kneeL does not come out below its own end",
+   "ok": true,
+   "measured": "kneeL 0.43 m, root 0.70 m, end 0.05 m"
+  },
+  {
+   "name": "neutral: the legR can reach without being stretched",
+   "ok": true,
+   "measured": "0.67 m to span on 0.80 m of limb"
+  },
+  {
+   "name": "neutral: the legR is bent, not locked straight",
+   "ok": true,
+   "measured": "kneeR sits 0.215 m off the straight line"
+  },
+  {
+   "name": "neutral: the thighR hangs down from its root, not out sideways",
+   "ok": true,
+   "measured": "drops 0.38 m along a 0.40 m segment"
+  },
+  {
+   "name": "neutral: the kneeR does not come out below its own end",
+   "ok": true,
+   "measured": "kneeR 0.32 m, root 0.70 m, end 0.05 m"
+  },
+  {
+   "name": "neutral: the steering arm can reach without being stretched",
+   "ok": true,
+   "measured": "0.29 m to span on 0.64 m of limb"
+  },
+  {
+   "name": "neutral: the steering arm is bent, not locked straight",
+   "ok": true,
+   "measured": "elbowTop sits 0.283 m off the straight line"
+  },
+  {
+   "name": "neutral: the upperArmTop hangs down from its root, not out sideways",
+   "ok": true,
+   "measured": "drops 0.25 m along a 0.30 m segment"
+  },
+  {
+   "name": "neutral: the driving arm can reach without being stretched",
+   "ok": true,
+   "measured": "0.43 m to span on 0.64 m of limb"
+  },
+  {
+   "name": "neutral: the driving arm is bent, not locked straight",
+   "ok": true,
+   "measured": "elbowBot sits 0.236 m off the straight line"
+  },
+  {
+   "name": "neutral: the upperArmBot hangs down from its root, not out sideways",
+   "ok": true,
+   "measured": "drops 0.27 m along a 0.30 m segment"
+  },
+  {
+   "name": "neutral: the elbowBot does not come out below its own end",
+   "ok": true,
+   "measured": "elbowBot 0.72 m, root 0.99 m, end 0.72 m"
+  },
+  {
+   "name": "neutral: the pelvis is not drawn out of shape",
+   "ok": true,
+   "measured": "drawn x1.33 over 0.18 m"
+  },
+  {
+   "name": "neutral: the torso is not drawn out of shape",
+   "ok": true,
+   "measured": "drawn x1.00 over 0.32 m"
+  },
+  {
+   "name": "stroke_far: the brush head is on the stone's line",
+   "ok": true,
+   "measured": "0.000 m off the line"
+  },
+  {
+   "name": "stroke_far: and ahead of the stone, not beside it",
+   "ok": true,
+   "measured": "1.38 m up the ice"
+  },
+  {
+   "name": "stroke_far: the body is off the line",
+   "ok": true,
+   "measured": "0.52 m off the line"
+  },
+  {
+   "name": "stroke_far: and on the far side from the camera that follows the play",
+   "ok": true,
+   "measured": "figure x -0.52, camera stands x +2.50"
+  },
+  {
+   "name": "stroke_far: feet apart along the path",
+   "ok": true,
+   "measured": "0.60 m apart up the ice, 0.00 m across"
+  },
+  {
+   "name": "stroke_far: with the toes pointing across it, not straddling the line",
+   "ok": true,
+   "measured": "0.00 m of straddle"
+  },
+  {
+   "name": "stroke_far: toes square to the ice lane",
+   "ok": true,
+   "measured": "0\u00b0 off across"
+  },
+  {
+   "name": "stroke_far: the head clears the shoulders instead of sitting inside them",
+   "ok": true,
+   "measured": "0.12 m above the shoulder line"
+  },
+  {
+   "name": "stroke_far: the head stays at a crouching height",
+   "ok": true,
+   "measured": "top of the head 1.23 m"
+  },
+  {
+   "name": "stroke_far: the head is turned toward the stone",
+   "ok": true,
+   "measured": "29\u00b0 from the line to the stone"
+  },
+  {
+   "name": "stroke_far: the legL can reach without being stretched",
+   "ok": true,
+   "measured": "0.62 m to span on 0.80 m of limb"
+  },
+  {
+   "name": "stroke_far: the legL is bent, not locked straight",
+   "ok": true,
+   "measured": "kneeL sits 0.251 m off the straight line"
+  },
+  {
+   "name": "stroke_far: the thighL hangs down from its root, not out sideways",
+   "ok": true,
+   "measured": "drops 0.30 m along a 0.40 m segment"
+  },
+  {
+   "name": "stroke_far: the kneeL does not come out below its own end",
+   "ok": true,
+   "measured": "kneeL 0.42 m, root 0.72 m, end 0.10 m"
+  },
+  {
+   "name": "stroke_far: the legR can reach without being stretched",
+   "ok": true,
+   "measured": "0.75 m to span on 0.80 m of limb"
+  },
+  {
+   "name": "stroke_far: the legR is bent, not locked straight",
+   "ok": true,
+   "measured": "kneeR sits 0.145 m off the straight line"
+  },
+  {
+   "name": "stroke_far: the thighR hangs down from its root, not out sideways",
+   "ok": true,
+   "measured": "drops 0.39 m along a 0.40 m segment"
+  },
+  {
+   "name": "stroke_far: the kneeR does not come out below its own end",
+   "ok": true,
+   "measured": "kneeR 0.33 m, root 0.72 m, end 0.05 m"
+  },
+  {
+   "name": "stroke_far: the steering arm can reach without being stretched",
+   "ok": true,
+   "measured": "0.20 m to span on 0.64 m of limb"
+  },
+  {
+   "name": "stroke_far: the steering arm is bent, not locked straight",
+   "ok": true,
+   "measured": "elbowTop sits 0.298 m off the straight line"
+  },
+  {
+   "name": "stroke_far: the upperArmTop hangs down from its root, not out sideways",
+   "ok": true,
+   "measured": "drops 0.26 m along a 0.30 m segment"
+  },
+  {
+   "name": "stroke_far: the driving arm can reach without being stretched",
+   "ok": true,
+   "measured": "0.37 m to span on 0.64 m of limb"
+  },
+  {
+   "name": "stroke_far: the driving arm is bent, not locked straight",
+   "ok": true,
+   "measured": "elbowBot sits 0.261 m off the straight line"
+  },
+  {
+   "name": "stroke_far: the upperArmBot hangs down from its root, not out sideways",
+   "ok": true,
+   "measured": "drops 0.23 m along a 0.30 m segment"
+  },
+  {
+   "name": "stroke_far: the elbowBot does not come out below its own end",
+   "ok": true,
+   "measured": "elbowBot 0.78 m, root 1.01 m, end 0.72 m"
+  },
+  {
+   "name": "stroke_far: the pelvis is not drawn out of shape",
+   "ok": true,
+   "measured": "drawn x1.33 over 0.18 m"
+  },
+  {
+   "name": "stroke_far: the torso is not drawn out of shape",
+   "ok": true,
+   "measured": "drawn x1.00 over 0.32 m"
+  },
+  {
+   "name": "stroke_near: the brush head is on the stone's line",
+   "ok": true,
+   "measured": "0.000 m off the line"
+  },
+  {
+   "name": "stroke_near: and ahead of the stone, not beside it",
+   "ok": true,
+   "measured": "1.20 m up the ice"
+  },
+  {
+   "name": "stroke_near: the body is off the line",
+   "ok": true,
+   "measured": "0.52 m off the line"
+  },
+  {
+   "name": "stroke_near: and on the far side from the camera that follows the play",
+   "ok": true,
+   "measured": "figure x -0.52, camera stands x +2.50"
+  },
+  {
+   "name": "stroke_near: feet apart along the path",
+   "ok": true,
+   "measured": "0.60 m apart up the ice, 0.00 m across"
+  },
+  {
+   "name": "stroke_near: with the toes pointing across it, not straddling the line",
+   "ok": true,
+   "measured": "0.00 m of straddle"
+  },
+  {
+   "name": "stroke_near: toes square to the ice lane",
+   "ok": true,
+   "measured": "0\u00b0 off across"
+  },
+  {
+   "name": "stroke_near: the head clears the shoulders instead of sitting inside them",
+   "ok": true,
+   "measured": "0.12 m above the shoulder line"
+  },
+  {
+   "name": "stroke_near: the head stays at a crouching height",
+   "ok": true,
+   "measured": "top of the head 1.23 m"
+  },
+  {
+   "name": "stroke_near: the head is turned toward the stone",
+   "ok": true,
+   "measured": "29\u00b0 from the line to the stone"
+  },
+  {
+   "name": "stroke_near: the legL can reach without being stretched",
+   "ok": true,
+   "measured": "0.75 m to span on 0.80 m of limb"
+  },
+  {
+   "name": "stroke_near: the legL is bent, not locked straight",
+   "ok": true,
+   "measured": "kneeL sits 0.145 m off the straight line"
+  },
+  {
+   "name": "stroke_near: the thighL hangs down from its root, not out sideways",
+   "ok": true,
+   "measured": "drops 0.27 m along a 0.40 m segment"
+  },
+  {
+   "name": "stroke_near: the kneeL does not come out below its own end",
+   "ok": true,
+   "measured": "kneeL 0.44 m, root 0.72 m, end 0.05 m"
+  },
+  {
+   "name": "stroke_near: the legR can reach without being stretched",
+   "ok": true,
+   "measured": "0.62 m to span on 0.80 m of limb"
+  },
+  {
+   "name": "stroke_near: the legR is bent, not locked straight",
+   "ok": true,
+   "measured": "kneeR sits 0.251 m off the straight line"
+  },
+  {
+   "name": "stroke_near: the thighR hangs down from its root, not out sideways",
+   "ok": true,
+   "measured": "drops 0.32 m along a 0.40 m segment"
+  },
+  {
+   "name": "stroke_near: the kneeR does not come out below its own end",
+   "ok": true,
+   "measured": "kneeR 0.40 m, root 0.72 m, end 0.10 m"
+  },
+  {
+   "name": "stroke_near: the steering arm can reach without being stretched",
+   "ok": true,
+   "measured": "0.41 m to span on 0.64 m of limb"
+  },
+  {
+   "name": "stroke_near: the steering arm is bent, not locked straight",
+   "ok": true,
+   "measured": "elbowTop sits 0.246 m off the straight line"
+  },
+  {
+   "name": "stroke_near: the upperArmTop hangs down from its root, not out sideways",
+   "ok": true,
+   "measured": "drops 0.23 m along a 0.30 m segment"
+  },
+  {
+   "name": "stroke_near: the driving arm can reach without being stretched",
+   "ok": true,
+   "measured": "0.53 m to span on 0.64 m of limb"
+  },
+  {
+   "name": "stroke_near: the driving arm is bent, not locked straight",
+   "ok": true,
+   "measured": "elbowBot sits 0.176 m off the straight line"
+  },
+  {
+   "name": "stroke_near: the upperArmBot hangs down from its root, not out sideways",
+   "ok": true,
+   "measured": "drops 0.26 m along a 0.30 m segment"
+  },
+  {
+   "name": "stroke_near: the elbowBot does not come out below its own end",
+   "ok": true,
+   "measured": "elbowBot 0.75 m, root 1.01 m, end 0.72 m"
+  },
+  {
+   "name": "stroke_near: the pelvis is not drawn out of shape",
+   "ok": true,
+   "measured": "drawn x1.33 over 0.18 m"
+  },
+  {
+   "name": "stroke_near: the torso is not drawn out of shape",
+   "ok": true,
+   "measured": "drawn x1.00 over 0.32 m"
+  },
+  {
+   "name": "this gate still matches main.js",
+   "ok": true,
+   "measured": "all 29 source lines it was copied from are still there"
+  }
+ ],
+ "frames": {
+  "neutral": {
+   "figure": [
+    -0.52,
+    0.0,
+    1.85
+   ],
+   "yaw": 1.5707963267948966,
+   "stroke": 0.44,
+   "roll": 0.0,
+   "pad": [
+    0.0,
+    0.0,
+    2.29
+   ],
+   "joints": {
+    "hipL": [
+     -0.12,
+     0.7,
+     0.0
+    ],
+    "hipR": [
+     0.12,
+     0.7,
+     0.0
+    ],
+    "footL": [
+     -0.3,
+     0.05,
+     0.0
+    ],
+    "footR": [
+     0.3,
+     0.05,
+     0.0
+    ],
+    "waist": [
+     0.0,
+     0.73,
+     0.0
+    ],
+    "chest": [
+     0.0,
+     0.9705778333250864,
+     0.21100309503087145
+    ],
+    "skull": [
+     0.0,
+     1.1059028645704474,
+     0.3296923359857366
+    ],
+    "shoulderBot": [
+     -0.17,
+     0.9905778333250864,
+     0.23100309503087144
+    ],
+    "shoulderTop": [
+     0.17,
+     0.9905778333250864,
+     0.23100309503087144
+    ],
+    "handTop": [
+     0.17677093013817785,
+     1.0059789360302167,
+     0.52
+    ],
+    "handBot": [
+     0.0042841445910603015,
+     0.7246458437505798,
+     0.52
+    ],
+    "kneeL": [
+     -0.4036462955967123,
+     0.4286251280113973,
+     0.07681443775379768
+    ],
+    "kneeR": [
+     0.02122706288238313,
+     0.3227244174135831,
+     0.0889215478792348
+    ],
+    "elbowTop": [
+     0.30257159771875397,
+     0.7452653109112212,
+     0.341667171520235
+    ],
+    "elbowBot": [
+     -0.27212384704233106,
+     0.723581035352252,
+     0.32201644425793857
+    ]
+   }
+  },
+  "stroke_far": {
+   "figure": [
+    -0.52,
+    0.0,
+    1.85
+   ],
+   "yaw": 1.5707963267948966,
+   "stroke": 0.53,
+   "roll": 0.09,
+   "pad": [
+    0.0,
+    0.0,
+    2.38
+   ],
+   "joints": {
+    "hipL": [
+     -0.12,
+     0.7186407817193445,
+     0.0
+    ],
+    "hipR": [
+     0.12,
+     0.7186407817193445,
+     0.0
+    ],
+    "footL": [
+     -0.15087374624524377,
+     0.09660195429836133,
+     0.0
+    ],
+    "footR": [
+     0.44912625375475623,
+     0.05,
+     0.0
+    ],
+    "waist": [
+     0.0,
+     0.7486407817193446,
+     0.0
+    ],
+    "chest": [
+     0.0,
+     0.989218615044431,
+     0.21100309503087145
+    ],
+    "skull": [
+     0.0,
+     1.124543646289792,
+     0.3296923359857366
+    ],
+    "shoulderBot": [
+     -0.17,
+     1.0092186150444309,
+     0.23100309503087144
+    ],
+    "shoulderTop": [
+     0.17,
+     1.0092186150444309,
+     0.23100309503087144
+    ],
+    "handTop": [
+     0.08427469351346795,
+     1.0019074706917923,
+     0.4139433119463469
+    ],
+    "handBot": [
+     -0.08751399196063747,
+     0.7217130085491725,
+     0.4436032331816906
+    ],
+    "kneeL": [
+     -0.37068837348044564,
+     0.41929764094501937,
+     0.0868851165222857
+    ],
+    "kneeR": [
+     0.16728706340046123,
+     0.3265933833504832,
+     0.06373987031025499
+    ],
+    "elbowTop": [
+     0.2930361283291407,
+     0.7505054448369006,
+     0.3200514340773957
+    ],
+    "elbowBot": [
+     -0.35846450237032196,
+     0.7762627822474741,
+     0.245587720915112
+    ]
+   }
+  },
+  "stroke_near": {
+   "figure": [
+    -0.52,
+    0.0,
+    1.85
+   ],
+   "yaw": 1.5707963267948966,
+   "stroke": 0.35,
+   "roll": -0.09,
+   "pad": [
+    0.0,
+    0.0,
+    2.2
+   ],
+   "joints": {
+    "hipL": [
+     -0.12,
+     0.7186407817193445,
+     0.0
+    ],
+    "hipR": [
+     0.12,
+     0.7186407817193445,
+     0.0
+    ],
+    "footL": [
+     -0.44912625375475623,
+     0.05,
+     0.0
+    ],
+    "footR": [
+     0.15087374624524377,
+     0.09660195429836133,
+     0.0
+    ],
+    "waist": [
+     0.0,
+     0.7486407817193446,
+     0.0
+    ],
+    "chest": [
+     0.0,
+     0.989218615044431,
+     0.21100309503087145
+    ],
+    "skull": [
+     0.0,
+     1.124543646289792,
+     0.3296923359857366
+    ],
+    "shoulderBot": [
+     -0.17,
+     1.0092186150444309,
+     0.23100309503087144
+    ],
+    "shoulderTop": [
+     0.17,
+     1.0092186150444309,
+     0.23100309503087144
+    ],
+    "handTop": [
+     0.264274693513468,
+     1.0019074706917923,
+     0.626056688053653
+    ],
+    "handBot": [
+     0.09248600803936258,
+     0.7217130085491725,
+     0.5963967668183093
+    ],
+    "kneeL": [
+     -0.4052596149332872,
+     0.44373104010701503,
+     0.05524116268467685
+    ],
+    "kneeR": [
+     -0.09424080595644738,
+     0.3962217413786576,
+     0.10073152182371903
+    ],
+    "elbowTop": [
+     0.30951961047348375,
+     0.7828901064480347,
+     0.3699623857956791
+    ],
+    "elbowBot": [
+     -0.17322321624142756,
+     0.7527106856064752,
+     0.38654502832383814
+    ]
+   }
+  }
+ },
+ "constants": {
+  "reach": 0.52,
+  "gripUpper": 1.18,
+  "gripLower": 0.85,
+  "ahead": 0.85,
+  "standOff": 0.52,
+  "stroke": 0.44,
+  "strokeSwing": 0.25,
+  "swing": 0.36,
+  "rollK": 0.25,
+  "limb": {
+   "thigh": 0.4,
+   "shin": 0.4,
+   "upper": 0.3,
+   "lower": 0.34
+  },
+  "bend": {
+   "kneeL": [
+    -0.95,
+    0.0,
+    0.35
+   ],
+   "kneeR": [
+    -0.8,
+    0.0,
+    0.35
+   ],
+   "armTop": [
+    0.45,
+    -0.85,
+    0.2
+   ],
+   "armBot": [
+    -0.45,
+    -0.85,
+    0.2
+   ]
+  },
+  "bones": {
+   "pelvis": 0.18,
+   "torso": 0.32,
+   "thighL": 0.4,
+   "shinL": 0.4,
+   "thighR": 0.4,
+   "shinR": 0.4,
+   "upperArmTop": 0.3,
+   "foreArmTop": 0.34,
+   "upperArmBot": 0.3,
+   "foreArmBot": 0.34
+  },
+  "cam": {
+   "side": [
+    2.5,
+    -3.4,
+    3.4
+   ],
+   "back": [
+    3.6
+   ],
+   "height": [
+    2.15
+   ],
+   "lateral": [
+    0.6,
+    0.1,
+    0.32
+   ],
+   "fov": [
+    42.0
+   ]
+  }
+ },
+ "gaze": [
+  0.6,
+  -0.55,
+  0.58
+ ],
+ "stale_literals": [],
+ "images": {
+  "follow": "C:\\Users\\nowak\\Documents\\deepseek-harness\\Games\\Curling\\blender\\preview\\fig_mid_stroke_follow.png",
+  "square_on": "C:\\Users\\nowak\\Documents\\deepseek-harness\\Games\\Curling\\blender\\preview\\fig_side_on_square_on.png",
+  "from_the_skip": "C:\\Users\\nowak\\Documents\\deepseek-harness\\Games\\Curling\\blender\\preview\\fig_side_on_from_the_skip.png"
+ }
+}

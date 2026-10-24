@@ -236,9 +236,9 @@ creeps into the renderer.
 ## Tests
 
 ```sh
-node tests/selftest.mjs    # 75 checks — physics, calibration, rules, scoring, the weight meter, the brushing model, the release table
+node tests/selftest.mjs    # 78 checks — physics, calibration, rules, scoring, the weight meter, the brushing model, the release table
 node tests/matchtest.mjs   # 29 checks — full matches, CPU strength ladder, timing, the two error models kept honest
-node tests/uitest.mjs      # 99 checks — DOM ids, key map, phases, cameras, the weight miniature, where a release may be rolled, end resets, asset paths, import boundary
+node tests/uitest.mjs      # 118 checks — DOM ids, key map, phases, cameras, the weight miniature, where a release may be rolled, the sweeper's stance and limbs (its joint solver is run, and every part the pose names is one the rig builds), end resets, asset paths, import boundary
 node tests/glbtest.mjs     # 96 checks — the shipped GLBs against the game's coordinate contract and camera framing
 ```
 
@@ -386,6 +386,58 @@ the same arithmetic `Matrix4.lookAt` uses, from the same vectors
 One trap worth knowing: Blender's exporter maps `(x, y, z)` to `(x, z, −y)`, so the
 house is authored at Blender Y = −15 to arrive at game Z = +15. That convention is
 documented at the top of both scripts and asserted by the tests.
+
+### The sweeper is drawn in the game layer, not modelled
+
+The six GLBs above cover the sheet, the stones, the broom, the hack and the arena. There
+is no player model, because none was ever asked for: the figure that runs beside a moving
+stone is built out of capsules, spheres and boxes in `main.js`, and it is the one thing in
+the frame the brief lets the renderer invent. The broom in its hands is the real
+`broom.glb`, and that is what the pose is measured against — the shaft is 1.28 m with the
+pad at the origin, and the two heights the hands go to are read from that shaft, which holds
+for the procedural fallback broom too.
+
+What it may not be is a person running face-first down the line. Sweepers work *beside* the
+line, square to it: feet apart along the path with the toes pointing across it, body bent
+over the broom, both hands on the shaft, eyes on the stone. `updateSweeper` turns the body a
+quarter turn off the direction of travel, which is what makes it read side-on from the camera
+that follows the play; `poseSweeper` is then written in that turned frame, where local −X is
+the path and local +Z is the ice lane, filling in the hip, knee, spine, shoulder and hand
+joints per frame and aiming the limbs between them — which is also what lets the feet shuffle
+sideways while the body stays square. The broom keeps a holder of its own whose yaw cancels
+the body's turn, so the brush head stays on the line: 0.52 m of reach to match the 0.52 m the
+body stands off it, which is also where the chippings come off rather than beside the stone.
+The jacket takes `TEAM_COLOR` for whichever team is throwing. Group 2d of
+[tests/uitest.mjs](tests/uitest.mjs) pins all of it, including that the reach and the standing
+offset are the same number.
+
+The hands go near the top of the handle — 0.85 m and 1.18 m up a 1.28 m shaft — because that
+is where a broom is held, and gripping lower would leave the only way to keep the brush on the
+ice to be squatting. That in turn is why the arms are two segments each: a shoulder and a grip
+0.95 m apart along a tilted shaft cannot be spanned by one straight capsule without stretching
+it to more than twice its length, and a stretched capsule reads as a plank, not an arm. The
+same is true of a hip 0.70 m above a planted foot. So `twoSeg` solves the knee and the elbow
+with the cosine rule and pushes the joint off the straight line in a chosen direction — which
+is also what makes a joint visible at all. The direction is a matter of camera as much as
+anatomy: a knee that points toward the ice lane points at the lens of the camera that follows
+the play, and the legs read as a scatter of dots.
+
+Checking a procedural figure without a browser was worth doing anyway, and it is now a script
+rather than a one-off: [blender/preview_figure.py](blender/preview_figure.py) rebuilds the same
+joints through the conversion `B(x, y, z) = (x, −z, y)` — a quarter turn about X, determinant
++1, which means a rotation about the game's Y is a rotation about Blender's Z with the same
+sign — and measures 82 claims about them: that the brush head is on the stone's line and ahead
+of it, that the body is off the line and on the far side from the camera that follows, that the
+feet are apart along the path with the toes square across it, that the head clears the
+shoulders and is turned toward the stone, and that every limb reaches its joints without being
+stretched while its knee or elbow actually bends. It reads those numbers out of `main.js`
+rather than restating them, and refuses to run at all if the source lines it was copied from
+have moved — a pose check that quietly goes stale is worse than none. `python
+blender/preview_figure.py --no-render` runs the arithmetic in a second; the full run renders
+the same figure through the game's own track camera into
+[blender/preview](blender/preview/fig_mid_stroke_follow.png) with the numbers beside it in
+[blender/_figure_report.json](blender/_figure_report.json). That is how the stance was
+measured against the real broom and the real camera before any of it went into the shot loop.
 
 ## Physics
 
@@ -608,19 +660,20 @@ second time on a CPU delivery, and never while the miniature is being fed.
   drawn by [tests/svg_peek.py](tests/svg_peek.py) from the markup the tests
   generate), not a screenshot of the running game. Everything else — rules, physics,
   UI wiring, asset contract — is covered by the Node suites.
-  The things that therefore remain unverified by eye are the ones that only exist in
-  the rendered 3D view: the orientation of the *scene* the miniature is aligned with
-  (the miniature itself is rastered, and its agreement with the cameras is proved by
-  rebuilding the screen bases from the vectors in `main.js`), and the stance of the
-  sweeper figure standing square to the path with the broom ahead of it. Two other
-  things have moved the opposite way, because both turned out to be measurable rather
-  than merely visible: what the plan view frames, and what hangs between it and the
-  ice, is now measured against `assets/arena.glb` itself and rendered through its pose;
-  and whether the view actually holds still when the stones stop is answered by running
-  the shipped camera code twice and comparing the coordinates, then rendering the one
-  pose that is only ever reached once a stone has left the sheet. Both are firmer
-  claims about those views than a screenshot of the running game would be. The two
-  above are pinned by reading the code, not by looking at them.
+  The one thing that remains unverified by eye is the orientation of the *scene*
+  the miniature is aligned with (the miniature itself is rastered, and its agreement
+  with the cameras is proved by rebuilding the screen bases from the vectors in
+  `main.js`). Everything else in that list turned out to be measurable rather than
+  merely visible, and is now: what the plan view frames, and what hangs between it
+  and the ice, is measured against `assets/arena.glb` itself and rendered through its
+  pose; whether the view actually holds still when the stones stop is answered by
+  running the shipped camera code twice and comparing the coordinates, then rendering
+  the one pose that is only ever reached once a stone has left the sheet; and the
+  stance of the sweeper figure — square to the path, broom on the stone's own line,
+  limbs that reach their joints — is rebuilt in Blender from the numbers read out of
+  `main.js` and rendered through the camera that follows the play
+  ([blender/preview_figure.py](blender/preview_figure.py)). Each of those is a firmer
+  claim about those views than a screenshot of the running game would be.
 - The procedural fallback textures are generated at startup (ice at 140 px/m). It is
   a heavier texture than the GLB path needs; it is only used when `assets/` is empty.
 - The CPU plays a legal, sensible shot rather than a perfect one: difficulty scales

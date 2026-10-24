@@ -431,27 +431,222 @@ function clearStoneViews() {
   stoneViews.clear();
 }
 
-/* --------------------------------------------------------- sweeper avatar */
+/* --------------------------------------------------------- sweeper avatar
+ * A stand-in drawn from primitives, not an asset — the broom in its hands is the
+ * real broom.glb. The figure is written in the frame updateSweeper turns it into:
+ * local +Z toward the line and the stone, local -X along the direction of travel,
+ * +Y up. That is because it is the shape a sweeper has. Nobody works a line
+ * face-first; they stand beside it and work side-on, feet apart along the path
+ * with their toes pointing across it, body square to the ice lane and bent over
+ * the broom, both hands on the shaft, eyes on the stone. So every joint below is
+ * written in that frame and the limbs are aimed between the joints each frame —
+ * which is also what lets the figure step, since a sweeper's feet shuffle along
+ * the path while the body stays square to the line. The broom is the exception:
+ * it is a real model, so it keeps a holder of its own whose yaw cancels the
+ * body's turn and whose position the hands are read from.
+ */
 const sweeper = new THREE.Group();
-{
-  const kit = new THREE.MeshPhysicalMaterial({ color: 0x1d3c63, roughness: 0.7 });
-  const skin = new THREE.MeshPhysicalMaterial({ color: 0xd8b48c, roughness: 0.8 });
-  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.16, 0.42, 4, 12), kit);
-  torso.position.y = 0.78; torso.rotation.x = 0.5;
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.11, 16, 12), skin);
-  head.position.set(0, 1.12, 0.12);
-  const legL = new THREE.Mesh(new THREE.CapsuleGeometry(0.07, 0.4, 4, 8), kit); legL.position.set(-0.1, 0.3, -0.1);
-  const legR = legL.clone(); legR.position.x = 0.1;
-  sweeper.add(torso, head, legL, legR);
-}
 const broomHolder = new THREE.Group();
-// The sweeper stands square to the path (see updateSweeper), so the broom is held
-// with its own yaw undoing the body's. 'YXZ' keeps that composition in the order
-// the pose is written in, which keeps the broom's world pose identical to before.
+// 'YXZ' keeps that composition in the order the pose is written in, so the
+// broom's world pose stays axis-aligned and its head stays on the line no matter
+// what the figure is doing with its feet.
 broomHolder.rotation.order = 'YXZ';
 sweeper.add(broomHolder);
 sweeper.visible = false;
 fxGroup.add(sweeper);
+
+// The broom works on the line itself, not beside it: the figure stands off the
+// path and reaches across, which is the only way a broom head ends up in front
+// of a stone without the body standing on the line. The two grips are heights up
+// the shaft, and both the hands and the arms follow them, so the grip holds
+// while the broom strokes. The top hand goes near the top of the handle, as it
+// does on a real broom: gripping well below the end would leave both hands at
+// hip height and the only way to keep the brush on the ice would be to squat.
+const SWEEP_REACH = 0.52;
+const BROOM_GRIP = { upper: 1.18, lower: 0.85 };
+// A sweeper watches their own stone, which from this frame is up-ice and toward
+// the ice lane, and looks down at the ice while brushing. Turned relative to the
+// body, not along it: the body faces the lane, the head looks back at the play.
+const SWEEP_GAZE = new THREE.Vector3(0.60, -0.55, 0.58).normalize();
+const HEAD_FORWARD = new THREE.Vector3(0, 0, 1);   // the face, in the figure's frame
+// Bone lengths of the stand-in, and which way each joint bends. Neither is free:
+// a segment shorter than the distance between its own joints gets stretched, and
+// a stretched capsule stops reading as a limb; a joint that bends the wrong way
+// puts the figure in a pose no knee or elbow can hold. The reach is measured at
+// both extremes of the stroke by blender/preview_figure.py.
+const LIMB = { thigh: 0.40, shin: 0.40, upper: 0.30, lower: 0.34 };
+const LIMB_BEND = {
+  // Knees along the path, leading the direction of travel, not toward the ice
+  // lane: the camera that follows the play looks in from the lane, so a limb
+  // pointing that way points at the lens and the legs read as scattered dots.
+  // Both knees go the same way — a crouch driving the same direction, the near
+  // one a touch deeper than the far one — because two knees bending opposite ways
+  // reads as a zig-zag of separate bars at the size this figure is seen at.
+  kneeL: [-0.95, 0.0, 0.35], kneeR: [-0.8, 0.0, 0.35],
+  armTop: [0.45, -0.85, 0.2],   // elbows hang rather than wing out; the steering arm
+  armBot: [-0.45, -0.85, 0.2],  // leads a little up-ice and the driving arm down-ice
+};
+
+// 0 while jogging with the stone, 1 while the ice is being swept. Eased, because
+// bending over the broom should not be a snap.
+let sweepPose = 0;
+
+function buildSweeperRig() {
+  const mat = {
+    // the jacket carries the team, so the figure is obviously the one whose
+    // stone is being swept; everything else stays dark against the ice
+    jacket: new THREE.MeshPhysicalMaterial({ color: TEAM_COLOR.A, roughness: 0.72 }),
+    trousers: new THREE.MeshPhysicalMaterial({ color: 0x1b222c, roughness: 0.75 }),
+    // Socks a shade lighter than the trousers: at the size this figure is seen
+    // at, one dark colour for a whole leg reads as a bar, and the bend at the
+    // knee is the thing that has to be visible.
+    socks: new THREE.MeshPhysicalMaterial({ color: 0x2c3644, roughness: 0.78 }),
+    skin: new THREE.MeshPhysicalMaterial({ color: 0xd8b48c, roughness: 0.8 }),
+    hair: new THREE.MeshPhysicalMaterial({ color: 0x2c2119, roughness: 0.9 }),
+    sole: new THREE.MeshPhysicalMaterial({ color: 0x12161b, roughness: 0.9 }),
+  };
+  const UP = new THREE.Vector3(0, 1, 0);
+  const d = new THREE.Vector3(), n = new THREE.Vector3();
+  const u = new THREE.Vector3(), pp = new THREE.Vector3(), bb = new THREE.Vector3();
+
+  function limb(radius, length, material) {
+    const m = new THREE.Mesh(new THREE.CapsuleGeometry(radius, length, 4, 10), material);
+    m.userData.rest = length;   // so aim() can stretch it to reach a joint
+    return m;
+  }
+  /** Stretch a limb along its own Y and point it from one joint to the next. */
+  function aim(part, a, b) {
+    d.subVectors(b, a);
+    const len = Math.max(1e-4, d.length());
+    n.copy(d).multiplyScalar(1 / len);
+    part.quaternion.setFromUnitVectors(UP, n);
+    part.position.copy(a).addScaledVector(n, len * 0.5);
+    part.scale.set(1, len / part.userData.rest, 1);
+  }
+  /**
+   * Place the joint in the middle of a two-segment limb. A hip 0.70 m above a
+   * planted foot and a grip 0.95 m up a tilted shaft are not distances a single
+   * straight capsule spans: drawn that way it stretches to twice its length and
+   * reads as a plank instead of an arm, which is what the first version of this
+   * figure did. So the knee and the elbow are solved for. The cosine rule gives
+   * the angle at the upper joint; `bend` says which side the joint goes to, off
+   * the straight line rather than along the limb. Returns whether the chain can
+   * reach at all — blender/preview_figure.py measures that every frame, because
+   * a hand that cannot reach its grip comes off the broom.
+   */
+  function twoSeg(a, b, l1, l2, bend, out) {
+    d.subVectors(b, a);
+    const raw = Math.max(1e-4, d.length());
+    const reach = Math.min(raw, l1 + l2 - 1e-3);
+    u.copy(d).multiplyScalar(1 / raw);
+    const cos = clamp((l1 * l1 + reach * reach - l2 * l2) / (2 * l1 * reach), -1, 1);
+    const sin = Math.sqrt(Math.max(0, 1 - cos * cos));
+    bb.set(bend[0], bend[1], bend[2]);
+    pp.copy(bb).addScaledVector(u, -bb.dot(u));
+    if (pp.lengthSq() < 1e-6) pp.set(u.y, -u.x, u.z); else pp.normalize();
+    out.copy(a).addScaledVector(u, cos * l1).addScaledVector(pp, sin * l1);
+    return raw <= l1 + l2 - 1e-3;
+  }
+
+  const P = {
+    pelvis: limb(0.13, 0.18, mat.trousers),
+    thighL: limb(0.085, LIMB.thigh, mat.trousers), shinL: limb(0.070, LIMB.shin, mat.socks),
+    thighR: limb(0.085, LIMB.thigh, mat.trousers), shinR: limb(0.070, LIMB.shin, mat.socks),
+    footL: new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.06, 0.22), mat.sole),
+    footR: new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.06, 0.22), mat.sole),
+    torso: limb(0.155, 0.32, mat.jacket),
+    // Two arms, each in two segments, each ending on a different grip: the top
+    // hand on a broom is the one that steers it and sits up-ice in this frame,
+    // the bottom hand drives along the shaft and sits down-ice. Keeping them on
+    // opposite sides of the body is what keeps both of them visible in profile.
+    upperArmTop: limb(0.052, LIMB.upper, mat.jacket), foreArmTop: limb(0.044, LIMB.lower, mat.jacket),
+    upperArmBot: limb(0.052, LIMB.upper, mat.jacket), foreArmBot: limb(0.044, LIMB.lower, mat.jacket),
+    handTop: new THREE.Mesh(new THREE.SphereGeometry(0.058, 10, 8), mat.skin),
+    handBot: new THREE.Mesh(new THREE.SphereGeometry(0.058, 10, 8), mat.skin),
+  };
+  // The head is a group, not a sphere: it has to look where a sweeper looks,
+  // which is not where the body faces. The face is local +Z of this group, so
+  // the hair and the knot sit behind it.
+  const head = new THREE.Group();
+  head.add(
+    new THREE.Mesh(new THREE.SphereGeometry(0.105, 16, 12), mat.skin),
+  );
+  const hair = new THREE.Mesh(new THREE.SphereGeometry(0.112, 16, 12), mat.hair);
+  hair.position.set(0, 0.025, -0.05);
+  const knot = new THREE.Mesh(new THREE.SphereGeometry(0.048, 10, 8), mat.hair);
+  knot.position.set(0, 0.03, -0.14);
+  head.add(hair, knot);
+
+  sweeper.add(P.pelvis, P.thighL, P.shinL, P.footL, P.thighR, P.shinR, P.footR,
+    P.torso, P.upperArmTop, P.foreArmTop, P.handTop,
+    P.upperArmBot, P.foreArmBot, P.handBot, head);
+
+  const J = {};
+  for (const k of ['hipL', 'hipR', 'kneeL', 'kneeR', 'footL', 'footR', 'waist',
+    'chest', 'skull', 'shoulderTop', 'shoulderBot', 'elbowTop', 'elbowBot',
+    'handTop', 'handBot']) {
+    J[k] = new THREE.Vector3();
+  }
+  return { P, J, head, aim, twoSeg, mat };
+}
+const rig = buildSweeperRig();
+
+/**
+ * The stance, written in the figure's frame. `step` drives the side-step and
+ * `brush` is the eased sweeping state: while the ice is being swept the body
+ * bends lower over the broom; between strokes it stands a little taller and the
+ * broom comes up off the ice. The hands are read from the broom holder, which
+ * the caller has already posed, so the grip holds through the stroke instead of
+ * the arms waving next to it — and because the holder moves, the elbows and
+ * knees are solved for against the hands and feet as they actually end up.
+ */
+function poseSweeper(step, brush) {
+  const { P, J, aim, twoSeg } = rig;
+  const shuffle = Math.sin(step);
+  const hips = 0.70 + 0.02 * Math.abs(shuffle);          // weight rising as it shifts
+  const lean = 0.56 + 0.16 * brush;                      // bend over the broom
+  const sLean = Math.sin(lean), cLean = Math.cos(lean);
+  const slide = 0.16 * shuffle;                          // both feet move together: a shuffle
+  const lift = 0.05;
+
+  // Feet apart along the path — that is the stance, not a stride across it.
+  J.hipL.set(-0.12, hips, 0); J.hipR.set(0.12, hips, 0);
+  J.footL.set(-0.30 + slide, 0.05 + (shuffle > 0 ? shuffle * lift : 0), 0);
+  J.footR.set(0.30 + slide, 0.05 + (shuffle < 0 ? -shuffle * lift : 0), 0);
+  twoSeg(J.hipL, J.footL, LIMB.thigh, LIMB.shin, LIMB_BEND.kneeL, J.kneeL);
+  twoSeg(J.hipR, J.footR, LIMB.thigh, LIMB.shin, LIMB_BEND.kneeR, J.kneeR);
+
+  // Spine along the lean. The head sits a neck and a half-head beyond the
+  // shoulders, not inside them: bent over, the head still rides above the
+  // shoulder line, which is what makes the posture read as a person rather than
+  // a leaning mass.
+  J.waist.set(0, hips + 0.03, 0);
+  J.chest.set(0, J.waist.y + 0.32 * cLean, 0.32 * sLean);
+  J.skull.set(0, J.waist.y + 0.50 * cLean, 0.50 * sLean);
+  J.shoulderBot.set(-0.17, J.chest.y + 0.02, J.chest.z + 0.02);
+  J.shoulderTop.set(0.17, J.chest.y + 0.02, J.chest.z + 0.02);
+
+  // Hands on the shaft, wherever the stroke has just taken it.
+  const grip = (s, out) => out.set(0, s, 0).applyEuler(broomHolder.rotation).add(broomHolder.position);
+  grip(BROOM_GRIP.upper, J.handTop);
+  grip(BROOM_GRIP.lower, J.handBot);
+  twoSeg(J.shoulderTop, J.handTop, LIMB.upper, LIMB.lower, LIMB_BEND.armTop, J.elbowTop);
+  twoSeg(J.shoulderBot, J.handBot, LIMB.upper, LIMB.lower, LIMB_BEND.armBot, J.elbowBot);
+
+  aim(P.pelvis, J.hipR, J.hipL);
+  aim(P.thighL, J.hipL, J.kneeL); aim(P.shinL, J.kneeL, J.footL);
+  aim(P.thighR, J.hipR, J.kneeR); aim(P.shinR, J.kneeR, J.footR);
+  aim(P.torso, J.waist, J.chest);
+  aim(P.upperArmTop, J.shoulderTop, J.elbowTop); aim(P.foreArmTop, J.elbowTop, J.handTop);
+  aim(P.upperArmBot, J.shoulderBot, J.elbowBot); aim(P.foreArmBot, J.elbowBot, J.handBot);
+  P.handTop.position.copy(J.handTop); P.handBot.position.copy(J.handBot);
+  // Toes pointing across the path while the feet sit along it: read as a body
+  // turned square to the ice lane from any angle the camera comes in at.
+  P.footL.position.set(J.footL.x, J.footL.y - 0.02, J.footL.z + 0.07);
+  P.footR.position.set(J.footR.x, J.footR.y - 0.02, J.footR.z + 0.07);
+  rig.head.position.copy(J.skull);
+  rig.head.quaternion.setFromUnitVectors(HEAD_FORWARD, SWEEP_GAZE);
+}
 
 // ice chippings
 const SPRAY_MAX = 220;
@@ -1023,32 +1218,43 @@ function updateSweeper() {
   const show = !!d && !d.removed && Math.hypot(d.vx, d.vz) > 0.05;
   sweeper.visible = show;
   broomHolder.visible = show;
-  if (!show) return;
+  // Off-screen is also the reset point: a new flight starts with the figure
+  // upright, not still bent over from the last one.
+  if (!show) { sweepPose = 0; return; }
   const sp = Math.hypot(d.vx, d.vz);
   const dir = new THREE.Vector3(d.vx / sp, 0, d.vz / sp);
   const right = new THREE.Vector3(-dir.z, 0, dir.x);      // right of travel
   const pos = new THREE.Vector3(d.x, 0, d.z).addScaledVector(dir, 0.85).addScaledVector(right, 0.52);
   sweeper.position.copy(pos);
-  // A sweeper does not run face-first down the line. The body stands square to the
-  // path and brushes across it, so the figure is turned 90 degrees from the direction
-  // of travel: in this frame local -X is along the path and local +Z is toward the
-  // stone, which is what the broom offsets below are written in.
+  // A sweeper never runs face-first down the line. The body is turned 90 degrees
+  // off the direction of travel and works across it, so from the play it is
+  // always seen side-on; in the frame that leaves, local -X is along the path
+  // and local +Z is toward the stone, and that is the frame poseSweeper writes.
   sweeper.rotation.y = Math.atan2(dir.x, dir.z) + Math.PI / 2;
+  rig.mat.jacket.color.setHex(TEAM_COLOR[d.team] || TEAM_COLOR.A).multiplyScalar(0.82);
   if (!broomHolder.userData.built && assets.broom && assets.broom.obj) {
     const b = assets.broom.obj.clone(true);
     broomHolder.add(b); broomHolder.userData.built = true;
   }
   const t = G.now * (G.sweeping ? 13 : 3);
   const swing = Math.sin(t) * (G.sweeping ? 0.36 : 0.06);
-  // Undo the body's turn so the broom keeps the exact world pose it had, and stroke
-  // it along the line — a real brush stroke runs fore and aft across the path, and
-  // the spray follows the head, not the body.
+  sweepPose += ((G.sweeping ? 1 : 0) - sweepPose) * 0.1;
+  // Undo the body's turn so the broom keeps an axis-aligned world pose.
   broomHolder.rotation.y = -Math.PI / 2;
   broomHolder.rotation.x = -0.55;
-  broomHolder.rotation.z = swing * 0.5;
-  const stroke = 0.35 + swing * 0.25;
-  broomHolder.position.set(-stroke, 0, 0.18);
-  const broomHead = pos.clone().addScaledVector(dir, stroke).addScaledVector(right, -0.18);
+  // A little wrist in the stroke. Kept small on purpose: the broom head stays
+  // flat on the ice in the game, and every degree of roll moves a grip a metre up
+  // the shaft by more than it looks, which the arms then have to follow.
+  broomHolder.rotation.z = swing * 0.25;
+  // The broom works out in front of the figure, the way a stroke actually runs:
+  // the brush head lands on the line ahead of the stone, and the hands stay
+  // between the two shoulders so neither arm has to reach across the body. Set
+  // that offset too short and the near end of the stroke puts a hand outside the
+  // arm's reach — the reach is measured, see the note on LIMB.
+  const stroke = 0.44 + swing * 0.25;
+  broomHolder.position.set(-stroke, (1 - sweepPose) * 0.03, SWEEP_REACH);
+  poseSweeper(G.now * (G.sweeping ? 5 : 3), sweepPose);
+  const broomHead = pos.clone().addScaledVector(dir, stroke).addScaledVector(right, -SWEEP_REACH);
   if (G.sweeping) {
     spawnSpray(broomHead); if (Math.random() < 0.6) spawnSpray(broomHead);
   }
