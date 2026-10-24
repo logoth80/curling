@@ -690,20 +690,39 @@ HANDLE_CAP_PROFILE = [
 ]
 
 # (y, z) control points of the gooseneck's spine, in the handle's own plane. The
-# first point sits inside the cap, so the grip is moulded out of it rather than
-# balanced on top of it. The arch leans: rise at the back, high point behind the
-# centre, and only then a run forward that turns down above the cap. A spine that
-# climbs and falls evenly makes a teacup handle, which is the mistake this
-# replaces; both handles in the photo lean the same way.
+# arch leans: rise at the back, high point behind the centre, and only then a run
+# forward that turns down again. A spine that climbs and falls evenly makes a
+# teacup handle, which is the mistake this replaces; both handles in the photo lean
+# the same way.
+#
+# Where the two ends stop is the part that was wrong once. The spine's end points
+# are placed so that the *underside* of the bar lands on the cap's own top surface
+# at that radius -- `cap_top_z_at` above, from HANDLE_CAP_PROFILE -- with a few mm
+# of bite, which is a moulded junction: visible as a bar meeting the cap, not as a
+# bar disappearing into the stone. Ends placed at or below the cap surface get
+# swallowed: an earlier spine ended 23 mm under the surface at the rear and 19 mm
+# under it at the front, which is what made the profile read as the handle bending
+# back into the stone.
+#
+# Each spine then carries one more point past the foot, following the leg's own
+# direction and roughly 5 mm under the surface, and HANDLE_SECTION thins the
+# section to a third of its grip thickness across that last stretch. That is the
+# difference between a bar whose end is sawn off and one that is moulded into the
+# cap: the terminal ring is small and hidden inside the moulding, so what the eye
+# reaches is the side of the bar running down onto the cap, not a flat facet
+# standing on top of it. The rise between the two feet is shallow, and the handle
+# still stands 0.06 m above the granite because the bar is 35 mm through: that is
+# how a real one does it, not by standing its ends in the stone.
 HANDLE_SPINE = [
-    (-0.55 * STONE_R, 1.02 * STONE_H),    # buried in the cap, near its rear rim
-    (-0.63 * STONE_R, 1.20 * STONE_H),    # rising steeply, not ramping
-    (-0.58 * STONE_R, 1.32 * STONE_H),
-    (-0.38 * STONE_R, 1.37 * STONE_H),    # the high point, behind the centre
-    (-0.10 * STONE_R, 1.37 * STONE_H),    # the run
-    (+0.14 * STONE_R, 1.35 * STONE_H),
-    (+0.36 * STONE_R, 1.22 * STONE_H),    # turning down above the cap, not past it
-    (+0.43 * STONE_R, 1.05 * STONE_H),    # and ending into it, as both do in the photo
+    (-0.50 * STONE_R, 1.005 * STONE_H),   # hidden tail, thinning, under the cap
+    (-0.55 * STONE_R, 1.16 * STONE_H),    # foot on the cap, near its rear rim
+    (-0.62 * STONE_R, 1.27 * STONE_H),    # the leg, leaning out as it climbs
+    (-0.50 * STONE_R, 1.35 * STONE_H),
+    (-0.28 * STONE_R, 1.38 * STONE_H),    # the high point, behind the centre
+    (-0.02 * STONE_R, 1.37 * STONE_H),    # the run
+    (+0.26 * STONE_R, 1.32 * STONE_H),
+    (+0.58 * STONE_R, 1.14 * STONE_H),    # foot on the cap, inside its rim
+    (+0.62 * STONE_R, 1.00 * STONE_H),    # hidden tail, thinning, under the cap
 ]
 
 # The section stays square to the spine, with its wide face level everywhere --
@@ -716,15 +735,21 @@ HANDLE_SPINE = [
 # into a curve. It is thickest where it leaves the cap, because that is where the
 # moulding carries the load into the cap, and it eases to its grip thickness along
 # the run. Sweeping a constant section makes a hoop sitting above the cap.
+#
+# The two short ramps at either end are the same idea in reverse: across the last
+# stretch into the cap the section thins to a third of its grip width, so the joint
+# is a wedge sinking into the moulding rather than a 35 mm bar sawn off at an angle.
+# Fractions are of the spine by control point, and the feet sit at 0.125 and 0.875.
 HANDLE_SECTION = dict(width=0.32 * STONE_R, thick=0.24 * STONE_R, power=0.40,
-                      taper=[(0.0, 1.15), (0.25, 1.05), (0.65, 1.00), (1.0, 0.92)])
+                      taper=[(0.0, 0.35), (0.14, 1.12), (0.34, 1.06),
+                             (0.70, 1.00), (0.86, 0.94), (1.0, 0.35)])
 
 
 def cap_top_z_at(radius):
     """The cap's own upper surface at a given distance from the axis, read out of
-    HANDLE_CAP_PROFILE. Used to check that the gooseneck is rooted inside the cap
-    and that its free end stops above the cap, instead of hoping the two parts
-    meet."""
+    HANDLE_CAP_PROFILE. This is the surface both feet of the gooseneck are placed on
+    and the one their bite is measured against, instead of hoping the two parts
+    meet somewhere inside the moulding."""
     top = max(range(len(HANDLE_CAP_PROFILE)), key=lambda i: HANDLE_CAP_PROFILE[i][0])
     chain = HANDLE_CAP_PROFILE[top:]        # from the widest point in over the top
     for (r0, z0), (r1, z1) in zip(chain, chain[1:]):
@@ -764,8 +789,34 @@ def measure_handle(objs):
     g_lo_y, g_hi_y = min(gy), max(gy)
     slice_mid = [p for p in g_pts
                  if g_lo_y + 0.45 * (g_hi_y - g_lo_y) <= p.y <= g_lo_y + 0.55 * (g_hi_y - g_lo_y)]
-    root_r = abs(HANDLE_SPINE[0][0])
     tip_r = abs(HANDLE_SPINE[-1][0])
+
+    def end_join(spine_end):
+        """One end of the grip, measured against the cap's own surface at that end's
+        radius. `burial` is how deep its lowest material sits under that surface;
+        `proud_of_cap` is how much of the bar is still standing above it there --
+        which is what the eye reads as the handle meeting the cap instead of bending
+        back into the stone. An earlier spine scored 19 mm buried and only 16 mm
+        proud at its free end, and the profile showed exactly that. The band is
+        12 mm wide at the foot deliberately: the leg runs past that radius higher
+        up, and including it would measure the leg instead of the joint."""
+        er = abs(spine_end[0])
+        forward = spine_end[0] > 0
+        sel = [p for p in g_pts if (p.y > 0) == forward and abs(abs(p.y) - er) <= 0.012]
+        if not sel:
+            return {'burial': 0.0, 'proud_of_cap': 0.0}
+        surface = cap_top_z_at(er)
+        return {
+            'burial': round(surface - min(p.z for p in sel), 4),
+            'proud_of_cap': round(max(p.z for p in sel) - surface, 4),
+        }
+
+    root_join = end_join(HANDLE_SPINE[1])
+    tip_join = end_join(HANDLE_SPINE[-2])
+
+    # The bar has to stand clear of the cap across the middle of its run, or there
+    # is no room for a hand under it and the arch is a decoration.
+    mid_run = [p for p in g_pts if 0.30 * (g_hi_y - g_lo_y) <= p.y - g_lo_y <= 0.70 * (g_hi_y - g_lo_y)]
     return {
         'body_diameter': round(body_d, 4),
         'cap_diameter_over_body': round(max(c_hi[0] - c_lo[0], c_hi[1] - c_lo[1]) / body_d, 3),
@@ -780,8 +831,18 @@ def measure_handle(objs):
         'grip_is_elongated': round(run / max(1e-6, other), 2),
         'grip_free_end_drops_below_peak_m': round(g_hi[2] - far.z, 4),
         'grip_tip_reach_over_cap_radius': round(tip_r / max(p[0] for p in HANDLE_CAP_PROFILE), 3),
-        'grip_root_is_under_cap_surface_m': round(cap_top_z_at(root_r) - HANDLE_SPINE[0][1], 4),
-        'grip_tip_clears_cap_by_m': round(HANDLE_SPINE[-1][1] - cap_top_z_at(tip_r), 4),
+        'grip_root_reach_over_cap_radius': round(abs(HANDLE_SPINE[0][0]) / max(p[0] for p in HANDLE_CAP_PROFILE), 3),
+        'grip_root_foot_burial_m': root_join['burial'],
+        'grip_tip_foot_burial_m': tip_join['burial'],
+        'grip_root_proud_of_cap_m': root_join['proud_of_cap'],
+        'grip_tip_proud_of_cap_m': tip_join['proud_of_cap'],
+        'grip_clears_cap_over_the_run_m': round(
+            min(p.z - cap_top_z_at(abs(p.y)) for p in mid_run) if mid_run else 0.0, 4),
+        # Reported, not asserted: the buried tail is meant to end up inside the
+        # solid of the stone, which is where a real handle's bolt boss lives, so
+        # this sits a few mm under the granite's top face by design and is hidden
+        # by the cap either way. What is asserted is that no part of it is visible.
+        'grip_lowest_point_above_stone_top_m': round(g_lo[2] - STONE_H, 4),
     }
 
 

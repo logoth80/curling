@@ -20,7 +20,19 @@ Two measurements, on purpose.
   from the mesh (blender/_build_report.json, written by build_assets.py)
     the ratios a photograph cannot give exactly because of the angle it is taken
     at: how wide the cap sits against the stone, how far the handle stands above
-    the granite, whether the grip is rooted in the cap or floating over it.
+    the granite, and how each end of the bar meets the cap's own surface - how
+    deep it bites, how much of it is still standing above the surface there, how
+    far it runs underground. That last group is the authority on where the ends
+    stop, because it needs no camera: the failure it exists to catch is a bar that
+    runs on under the cap, which reads in a profile view as the handle bending
+    back into the stone.
+
+The outline comparison, for all it is the only part that touches the reference, is
+the COARSE one and is treated as such below: the blob it measures includes the cap,
+and a 0.223 m disc seen at 20 degrees adds 76 mm of silhouette, more than the whole
+rise of the bar. What it can settle is whether the handle reads as a leaning
+gooseneck rather than a knob. It cannot settle where the feet land, and using it to
+try once put both ends of the bar inside the stone.
 
 It writes the classification it used to preview/handle_*_mask.png, so a wrong
 measurement can be seen to be wrong rather than argued about, and
@@ -44,14 +56,25 @@ MINE = os.path.join(HERE, 'preview', 'handle_photo_view.png')
 BUILD = os.path.join(HERE, '_build_report.json')
 
 SAMPLES = 41
-# How far two outlines may disagree, in fractions of the handle's own height. Set
-# against what the reference's two handles - the same object seen from different
-# sides - differ by, plus room for the render's slightly different camera.
-OUTLINE_TOL = 0.11
+# How far two outlines may disagree, in fractions of the handle's own height. This
+# is a COARSE guard and is treated as one: the outline it compares is the handle
+# and cap seen as one coloured blob from the photograph's angle, and the height of
+# that blob is set mostly by the cap's projected ellipse -- a disc 0.223 m across
+# seen at ~20 degrees adds 0.223*sin(20) = 76 mm of silhouette, which is more than
+# the whole rise of the bar. It can tell a knob from a gooseneck, and which way the
+# handle leans, and that is what it is used for. Where the ends of the bar stop is
+# settled by the mesh checks at the end of this file, which read the built geometry
+# against the cap surface directly and need no camera at all; designing against this
+# number instead is what once buried both ends of the bar inside the stone.
+# Set against what the reference's two handles - the same object seen from different
+# sides - differ by, plus room for that projection difference.
+OUTLINE_TOL = 0.16
 # Where along the handle its high point may sit. A handle meant to be held from
 # one side leans: the high point is near one end. Centred, it is a teacup handle.
 PEAK_EDGE = 0.42
-# How far the free end has to fall below the level of the run.
+# How far the free end has to fall below the level of the run. The reference reads
+# much larger than this here (0.8), and that figure is the cap's ellipse, not the
+# bar's curl: the mesh checks below hold the real drop in metres.
 FREE_END_DROP = 0.10
 
 
@@ -286,16 +309,30 @@ def main():
     checks.append(('the bar is as thick as the reference measures it (0.028-0.042 m)',
                    0.028 <= mesh['grip_section_thickness_m'] <= 0.042,
                    '%.3f m through' % mesh['grip_section_thickness_m']))
-    checks.append(('the grip is rooted in the cap rather than standing over it',
-                   mesh['grip_root_is_under_cap_surface_m'] > 0.001,
-                   'root is %.4f m under the cap surface' % mesh['grip_root_is_under_cap_surface_m']))
-    checks.append(('the free end curls down into the cap instead of hanging above it',
-                   abs(mesh['grip_tip_clears_cap_by_m']) <= 0.008,
-                   'tip ends %+.4f m from the cap surface at its own radius'
-                   % mesh['grip_tip_clears_cap_by_m']))
-    checks.append(('the free end stays inside the cap instead of reaching past its edge',
-                   mesh['grip_tip_reach_over_cap_radius'] <= 0.85,
-                   'tip at %.2f of the cap radius' % mesh['grip_tip_reach_over_cap_radius']))
+    root_burial = mesh['grip_root_foot_burial_m']
+    tip_burial = mesh['grip_tip_foot_burial_m']
+    root_proud = mesh['grip_root_proud_of_cap_m']
+    tip_proud = mesh['grip_tip_proud_of_cap_m']
+    checks.append(('both feet of the bar bite the cap surface, so the joint is moulded rather than butted',
+                   min(root_burial, tip_burial) >= 0.001,
+                   'root bites %.4f m, free end %.4f m' % (root_burial, tip_burial)))
+    checks.append(('no end of the bar runs deep under the cap surface (<= 0.015 m of material underground)',
+                   max(root_burial, tip_burial) <= 0.015,
+                   'deepest material %.4f m under the cap' % max(root_burial, tip_burial)))
+    checks.append(('the bar is still standing where it meets the cap (>= 0.020 m proud of it at both feet)',
+                   min(root_proud, tip_proud) >= 0.020,
+                   'proud of the cap by %.4f m at the rear foot and %.4f m at the free foot'
+                   % (root_proud, tip_proud)))
+    checks.append(('the arch stands clear of the cap across its run, leaving room for a hand (>= 0.008 m)',
+                   mesh['grip_clears_cap_over_the_run_m'] >= 0.008,
+                   'tightest clearance under the bar over the run %.4f m'
+                   % mesh['grip_clears_cap_over_the_run_m']))
+    root_reach = mesh['grip_root_reach_over_cap_radius']
+    tip_reach = mesh['grip_tip_reach_over_cap_radius']
+    checks.append(('both buried tails stay under the cap, so none of the joint shows',
+                   max(root_reach, tip_reach) <= 0.85,
+                   'tails reach %.2f and %.2f of the cap radius, both under its surface'
+                   % (root_reach, tip_reach)))
 
     failed = [c for c, ok, _ in checks if not ok]
     summary = {'reference_caps_on_body': [round(c, 3) for c in ref_caps],

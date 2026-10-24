@@ -19,7 +19,7 @@
     ],
     "ortho_scale": 0.34,
     "lens_mm": null,
-    "bytes": 680509
+    "bytes": 682229
   },
   "photo_view": {
     "camera": "PERSP",
@@ -34,7 +34,7 @@
     ],
     "ortho_scale": null,
     "lens_mm": 50,
-    "bytes": 701220
+    "bytes": 700823
   },
   "from_above": {
     "camera": "ORTHO",
@@ -49,7 +49,7 @@
     ],
     "ortho_scale": 0.34,
     "lens_mm": null,
-    "bytes": 540356
+    "bytes": 540191
   },
   "images": [
     "blender/preview/handle_side_profile.png",

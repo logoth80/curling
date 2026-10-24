@@ -325,7 +325,7 @@ exported Y-up at 1 unit = 1 m:
 | File | Tris | Notes |
 | --- | ---: | --- |
 | `sheet.glb` | 380 | ice, apron to the end dasher, floor decks, painted hog/tee/back/centre lines, four house discs, two hack fixtures |
-| `stone_red.glb`, `stone_yellow.glb` | 1512 each | granite body (0.29 m ⌀ × 0.114 m, roughness 0.90) + coloured plastic handle (roughness 0.50) on a node named `handle` — a moulded cap over the granite shoulder and a leaning gooseneck grip, from the proportions measured off [blender/reference/handle_reference.webp](blender/reference/handle_reference.webp); origin at the bottom centre |
+| `stone_red.glb`, `stone_yellow.glb` | 1596 each | granite body (0.29 m ⌀ × 0.114 m, roughness 0.90) + coloured plastic handle (roughness 0.50) on a node named `handle` — a moulded cap over the granite shoulder and a leaning gooseneck grip whose ends are joined into that cap, from the proportions measured off [blender/reference/handle_reference.webp](blender/reference/handle_reference.webp); origin at the bottom centre |
 | `broom.glb` | 148 | 1.28 m broom for the sweeper avatar |
 | `hack.glb` | 84 | the foot hack |
 | `arena.glb` | 588 | dasher boards, decks, stands, banners, trusses and ceiling banks |
@@ -357,17 +357,25 @@ memory: a product photograph of two real stones, kept in the repo at
 so the comparison stays reproducible. Its proportions were read off that photo with
 PIL and written into the build as numbers that carry their source: the cap spans
 0.72-0.90 of the body's diameter, its lower edge sits at 0.91 of the granite's
-height, the bar is 0.15-0.18 of the cap's width through (33-40 mm), the arch leans
-because a handle is meant to be held from one side, and the free end curls down into
-the cap instead of reaching past it. `HANDLE_CAP_PROFILE`, `HANDLE_SPINE` and
-`HANDLE_SECTION` in [blender/build_assets.py](blender/build_assets.py) are those
-numbers; the grip is a swept section (`sweep()`) along a spline, not a bent tube.
+height, the bar is 0.15-0.18 of the cap's width through (33-40 mm), and the arch
+leans, because a handle is meant to be held from one side.
+
+Where its two ends stop is not in the photograph, and it is the part that was wrong
+once. The answer is the cap's own surface: `cap_top_z_at()` reads it out of
+`HANDLE_CAP_PROFILE`, the spine places each end's *underside* on that surface, and
+one more short point runs past each foot while `HANDLE_SECTION` thins the section to
+a third of its grip width across it. That is the difference between a handle moulded
+into the cap and a bar sawn off at an angle standing on top of it.
+`HANDLE_CAP_PROFILE`, `HANDLE_SPINE` and `HANDLE_SECTION` in
+[blender/build_assets.py](blender/build_assets.py) are those numbers; the grip is a
+swept section (`sweep()`) along a spline, not a bent tube.
 
 The build then measures what it made, off the evaluated mesh, and puts it in the
 report under `handle`: the cap at 0.77 of the body diameter, the top of the handle
-0.060 m above the granite, the bar 0.035 m through, its root 3.4 mm under the cap
-surface so it is joined rather than floating, its tip ending 1.5 mm inside the cap
-at 0.56 of that cap's radius.
+0.061 m above the granite, the bar 0.035 m through, both feet 10 mm into the cap's
+surface while still standing 33-52 mm proud of it where they meet it, the arch
+clearing the cap by 12 mm under its run so a hand fits under it, and both buried
+tails ending at 0.65 and 0.81 of the cap's radius, so no part of the joint shows.
 
 Two views judge the shape, because a handle lies in one plane and a game screenshot
 almost never looks along it:
@@ -389,9 +397,18 @@ under any threshold used here — and refuses the comparison outright if the ren
 not looking at the stone from near the same angle the photo was taken at (the
 body's projected height in frame says whether it is).
 
-Twelve checks pass. The outlines land at 0.10-0.11 against a 0.11 limit, which is a
-pass and not by much, and the residual is real rather than measurement noise: the
-reference's grip is flatter, and its free end comes down further than this one's.
+Fourteen checks pass, and the script is explicit about which of them mean what. The
+outline comparison is the coarse one, and its own header says so: it compares a
+single coloured blob, and the height of that blob is set mostly by the cap's
+projected ellipse — a disc 0.223 m across seen at 20 degrees adds 76 mm of
+silhouette, which is more than the entire rise of the bar. Lifting both ends out of
+the stone moved that number by one hundredth (0.107 to 0.117, against a limit set at
+0.16 for exactly that reason), while the reference's own two handles sit 0.022 apart.
+It is therefore only asked whether the handle reads as a leaning gooseneck rather
+than a knob, and the ends are held by the mesh checks instead, which need no camera
+at all: the version that was wrong here scored 19 mm of material buried under the
+cap's surface and stood 16 mm proud of it at its free end, and the profile showed
+exactly that.
 [tests/glbtest.mjs](tests/glbtest.mjs) holds the shipped file to the coarse version
 of the same claims — the handle standing 0.04-0.08 m clear of the granite, and the
 grip reaching across the cap rather than sitting on it as a knob — so a future

@@ -12,14 +12,14 @@
     "blender/preview/glb_stone_closeup.png"
   ],
   "sizes": {
-    "glb_aim_from_hack.png": 684591,
-    "glb_track_midice.png": 728660,
-    "glb_summary_from_back.png": 717611,
-    "glb_title_view.png": 701644,
-    "glb_plan_over_house.png": 668110,
+    "glb_aim_from_hack.png": 684386,
+    "glb_track_midice.png": 728639,
+    "glb_summary_from_back.png": 717663,
+    "glb_title_view.png": 701739,
+    "glb_plan_over_house.png": 667685,
     "glb_plan_as_it_was.png": 626641,
-    "glb_hold_after_shot.png": 739579,
-    "glb_stone_closeup.png": 777643
+    "glb_hold_after_shot.png": 739738,
+    "glb_stone_closeup.png": 778574
   },
   "look": {
     "aim_from_hack": {
@@ -84,7 +84,7 @@
       "black_frac": 0.0,
       "ice_region_mean": 0.447,
       "ice_region_clip": 0.0,
-      "colour_std": 0.144
+      "colour_std": 0.145
     }
   },
   "gates": {

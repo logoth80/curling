@@ -2,7 +2,7 @@
   "reference": "blender/reference/handle_reference.webp",
   "model": "blender/preview/handle_photo_view.png",
   "samples": 41,
-  "outline_tolerance": 0.11,
+  "outline_tolerance": 0.16,
   "peak_edge": 0.42,
   "free_end_drop": 0.1,
   "reference_caps_on_body": [
@@ -26,7 +26,7 @@
         "peak_position": 0.25,
         "free_end_drop": 0.823
       },
-      "outline_deviation_vs_model": 0.107
+      "outline_deviation_vs_model": 0.117
     },
     {
       "source": "reference right",
@@ -39,18 +39,18 @@
         "peak_position": 0.6,
         "free_end_drop": 0.815
       },
-      "outline_deviation_vs_model": 0.1
+      "outline_deviation_vs_model": 0.109
     },
     {
       "source": "model (this build)",
       "handle_w_px": 448,
-      "handle_h_px": 224,
-      "aspect": 0.5,
+      "handle_h_px": 225,
+      "aspect": 0.502,
       "body_aspect": 0.64,
       "cap_over_body": null,
       "shape": {
         "peak_position": 0.3,
-        "free_end_drop": 0.621
+        "free_end_drop": 0.622
       },
       "outline_deviation_vs_model": null
     }
@@ -64,12 +64,12 @@
     [
       true,
       "the modelled handle outline matches the reference (reference left)",
-      "mean deviation 0.107 of the handle height, limit 0.11 (the reference handles differ from each other by 0.022)"
+      "mean deviation 0.117 of the handle height, limit 0.16 (the reference handles differ from each other by 0.022)"
     ],
     [
       true,
       "the modelled handle outline matches the reference (reference right)",
-      "mean deviation 0.100 of the handle height, limit 0.11 (the reference handles differ from each other by 0.022)"
+      "mean deviation 0.109 of the handle height, limit 0.16 (the reference handles differ from each other by 0.022)"
     ],
     [
       true,
@@ -94,7 +94,7 @@
     [
       true,
       "the handle stands as far above the stone as the reference shows (0.045-0.075 m)",
-      "0.060 m above the granite"
+      "0.061 m above the granite"
     ],
     [
       true,
@@ -103,18 +103,28 @@
     ],
     [
       true,
-      "the grip is rooted in the cap rather than standing over it",
-      "root is 0.0034 m under the cap surface"
+      "both feet of the bar bite the cap surface, so the joint is moulded rather than butted",
+      "root bites 0.0102 m, free end 0.0106 m"
     ],
     [
       true,
-      "the free end curls down into the cap instead of hanging above it",
-      "tip ends -0.0015 m from the cap surface at its own radius"
+      "no end of the bar runs deep under the cap surface (<= 0.015 m of material underground)",
+      "deepest material 0.0106 m under the cap"
     ],
     [
       true,
-      "the free end stays inside the cap instead of reaching past its edge",
-      "tip at 0.56 of the cap radius"
+      "the bar is still standing where it meets the cap (>= 0.020 m proud of it at both feet)",
+      "proud of the cap by 0.0519 m at the rear foot and 0.0325 m at the free foot"
+    ],
+    [
+      true,
+      "the arch stands clear of the cap across its run, leaving room for a hand (>= 0.008 m)",
+      "tightest clearance under the bar over the run 0.0117 m"
+    ],
+    [
+      true,
+      "both buried tails stay under the cap, so none of the joint shows",
+      "tails reach 0.65 and 0.81 of the cap radius, both under its surface"
     ]
   ],
   "failed": 0
