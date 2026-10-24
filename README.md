@@ -239,7 +239,7 @@ creeps into the renderer.
 ```sh
 node tests/selftest.mjs    # 78 checks — physics, calibration, rules, scoring, the weight meter, the brushing model, the release table
 node tests/matchtest.mjs   # 29 checks — full matches, CPU strength ladder, timing, the two error models kept honest
-node tests/uitest.mjs      # 118 checks — DOM ids, key map, phases, cameras, the weight miniature, where a release may be rolled, the sweeper's stance and limbs (its joint solver is run, and every part the pose names is one the rig builds), end resets, asset paths, import boundary
+node tests/uitest.mjs      # 123 checks — DOM ids, key map, phases, cameras, the weight miniature, where a release may be rolled, the sweeper's stance and limbs (its joint solver is run, and every part the pose names is one the rig builds), whose handle angle, end resets, asset paths, import boundary
 node tests/glbtest.mjs     # 100 checks — the shipped GLBs against the game's coordinate contract, the handle's shape, and camera framing
 ```
 
@@ -413,6 +413,28 @@ exactly that.
 of the same claims — the handle standing 0.04-0.08 m clear of the granite, and the
 grip reaching across the cap rather than sitting on it as a knob — so a future
 rebuild that turns it back into a stub fails a suite rather than a taste test.
+
+### One stone's spin belongs to that stone
+
+The handle node exists at runtime for one reason: turning it about Y is how the game
+shows spin. The first version kept that angle in the shared game state and wrote it
+to every stone in the scene, so delivering one stone turned the handles of every
+other stone standing on the ice — the whole rink spinning around a single throw,
+which is what it looked like and what it was.
+
+The angle now lives on the stone's own view. Only the stone actually in flight has
+its angle advanced. A struck stone keeps the angle it had, which is consistent with
+the physics: `physics.js` carries no spin through contact. A stone that is simply
+standing on the ice has an angle hashed from its id — varied across the sheet the
+way a real rink is, but identical from frame to frame and reload to reload, so a
+handle that is not turning cannot appear to turn. The HUD dial asks which stone it
+is describing instead of reading shared state, and while aiming there is no handle to
+turn at all, because the delivered stone's view only comes into being at the
+release; the aiming indication is the dial, the level dots and the arc's colour.
+
+Group 4b of [tests/uitest.mjs](tests/uitest.mjs) holds that shape: no shared angle
+may be written onto a handle, a resting angle may not come from `Math.random`, and a
+late asset load must hand back the angle a standing stone was already holding.
 
 ### Visual gate
 

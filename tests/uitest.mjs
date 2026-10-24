@@ -659,6 +659,26 @@ group('4. Assets: GLB first, procedural stand-in always');
   check('assets are only requested, never required, at boot', !/throw new Error\(.*asset/.test(js));
 }
 
+group('4b. Spin belongs to the stone: one delivery must not turn every handle on the ice');
+{
+  const loop = bodyOf('frameLoop');
+  check('the frame loop advances the in-flight stone\'s own view angle',
+    /stoneViews\.get\(G\.live\.delivered\.id\)/.test(loop) && /v\.handleAngle -=/.test(loop));
+  check('it never writes one shared angle to every handle',
+    !/rotation\.y = G\.handleAngle/.test(js) && /v\.handle\.rotation\.y = v\.handleAngle/.test(loop),
+    'a single angle on G is what made the whole rink spin with a single delivery');
+  check('each stone is seeded with its own resting angle, hashed from its id',
+    /this\.handleAngle = restHandleAngle\(stone\.id\)/.test(js)
+    && /charCodeAt/.test(bodyOf('restHandleAngle'))
+    && !/Math\.random/.test(bodyOf('restHandleAngle')),
+    'deterministic, so a handle that is standing still cannot appear to turn');
+  check('the HUD dial asks which stone it is describing',
+    /spinDialAngle\(\)/.test(bodyOf('updateHUD'))
+    && /stoneViews\.get\(G\.live\.delivered\.id\)/.test(bodyOf('spinDialAngle')));
+  check('loading the real models under a standing stone keeps the angle it held',
+    /v\.handle\.rotation\.y = v\.handleAngle/.test(bodyOf('updateStoneRoots')));
+}
+
 group('5. Three.js wiring');
 {
   check('index.html uses an import map for three + addons', /"imports"/.test(html) && /three@0\.\d+\.\d+\/build\/three\.module\.js/.test(html) && /three\/addons\//.test(html));

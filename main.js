@@ -388,11 +388,31 @@ function placeSheet(obj) {
 }
 
 /* ------------------------------------------------------- stone appearance */
+/**
+ * A stable, varied handle angle for a stone nobody is throwing.
+ *
+ * Hashed from the stone id, never drawn from Math.random: an angle that changed
+ * between frames, camera moves, or reloads would look like a stone turning while
+ * nothing is touching it. It is not zero, because stones already standing on the
+ * ice when an end opens have handles at all angles — and a stationary handle is
+ * information, it says which way that stone came in.
+ */
+function restHandleAngle(id) {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
+  return ((h >>> 0) % 3600) / 3600 * Math.PI * 2;
+}
+
 class StoneView {
   constructor(stone, root) {
     this.stone = stone;
     this.root = root;                      // origin at the bottom centre
     this.handle = root.userData.handle || findPart(root, 'handle') || null;
+    // The angle belongs to this stone. See the note in frameLoop where it is
+    // advanced: a stone is spun once, at delivery, and stops turning when it
+    // stops sliding, so no other stone on the ice has any reason to share it.
+    this.handleAngle = restHandleAngle(stone.id);
+    if (this.handle) this.handle.rotation.y = this.handleAngle;
     this.root.position.set(stone.x, 0, stone.z);
   }
   sync(stone) {
@@ -429,6 +449,20 @@ function ensureStoneView(stone) {
 function clearStoneViews() {
   for (const v of stoneViews.values()) stoneGroup.remove(v.root);
   stoneViews.clear();
+}
+
+/**
+ * The angle the HUD dial should show: the live stone's own while one is
+ * running, otherwise the aiming indication. Per-stone angles are not
+ * interchangeable, so the dial asks which stone it is describing instead of
+ * reading state shared between stones.
+ */
+function spinDialAngle() {
+  if (G.phase === 'INFLIGHT' && G.live) {
+    const v = stoneViews.get(G.live.delivered.id);
+    if (v) return v.handleAngle;
+  }
+  return G.handleAngle;
 }
 
 /* --------------------------------------------------------- sweeper avatar
@@ -790,7 +824,7 @@ function updateHUD() {
   }
   hud.spinLevels.forEach(el => el.classList.toggle('on', +el.dataset.s === G.shot.spin));
   hud.spinIcon.style.color = G.shot.spin > 0 ? '#4aa8ff' : G.shot.spin < 0 ? '#ffb454' : '#93a7b8';
-  hud.spinIcon.style.transform = `rotate(${G.handleAngle * 57.3}deg)`;
+  hud.spinIcon.style.transform = `rotate(${spinDialAngle() * 57.3}deg)`;
 
   // Brushing has no budget, so the bar is not a countdown: it shows the share of
   // this delivery that has been brushed, which is the number that explains why the
@@ -1523,14 +1557,25 @@ function frameLoop(nowWall) {
     }
   }
 
-  // Handle indication: the handle turns to show the chosen spin direction, and
-  // keeps turning while the stone travels (faster when brushing).
+  // Handle rotation, per stone.
+  //
+  // This used to be one angle on G, written to every view in the scene, so a
+  // thrown stone turned the handles of every other stone standing on the ice —
+  // the whole rink spinning around a single delivery. A stone is spun once, at
+  // delivery, and stops turning the moment it stops sliding; a struck stone is
+  // not spun up either, because the physics does not carry spin through contact.
+  // So each view carries its own angle: only the stone actually in flight has
+  // its angle advanced, and every other stone keeps what it was left with.
+  //
+  // While aiming there is nothing to turn — the delivered stone's view is created
+  // at the release — so the aiming angle drives the HUD dial only.
   if (['AIM', 'POWER', 'WINDUP'].includes(G.phase) && G.shot.spin) {
     G.handleAngle -= G.shot.spin * 1.6 * dt;
   } else if (G.phase === 'INFLIGHT' && G.live) {
-    G.handleAngle -= (G.sweeping ? 7 : 3.2) * (G.live.delivered.spin || 0) * dt;
+    const v = stoneViews.get(G.live.delivered.id);
+    if (v) v.handleAngle -= (G.sweeping ? 7 : 3.2) * (G.live.delivered.spin || 0) * dt;
   }
-  for (const v of stoneViews.values()) if (v.handle) v.handle.rotation.y = G.handleAngle;
+  for (const v of stoneViews.values()) if (v.handle) v.handle.rotation.y = v.handleAngle;
 
   updateSpray(dt);
   updateCamera(dt);
@@ -1639,6 +1684,10 @@ function updateStoneRoots() {
     const fresh = stoneRoot(team);
     stoneGroup.remove(v.root);
     v.root = fresh; v.handle = fresh.userData.handle || findPart(fresh, 'handle');
+    // The swapped-in handle inherits the angle this stone was holding: assets can
+    // arrive after the stones are already on the ice, and a stone that was
+    // standing still must not appear to have turned when the real model loads.
+    if (v.handle) v.handle.rotation.y = v.handleAngle;
     stoneGroup.add(fresh);
   }
 }
