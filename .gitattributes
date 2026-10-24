@@ -8,6 +8,7 @@
 *.bat text eol=crlf
 *.glb binary
 *.png binary
+*.webp binary
 *.jpg binary
 *.jpeg binary
 *.blend binary
