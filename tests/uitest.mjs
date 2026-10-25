@@ -679,6 +679,83 @@ group('4b. Spin belongs to the stone: one delivery must not turn every handle on
     /v\.handle\.rotation\.y = v\.handleAngle/.test(bodyOf('updateStoneRoots')));
 }
 
+group('4c. The page declares its icon, and the .ico is readable by a browser and by Windows');
+{
+  const link = html.match(/<link[^>]+rel=["']icon["'][^>]*>/);
+  check('index.html declares an icon link', !!link, link ? link[0] : 'no rel="icon" link');
+  const href = link ? ((link[0].match(/href=["']([^"']+)["']/) || [])[1] || '') : '';
+  check('the href is relative, so the icon still loads when the game is served from a subpath',
+    href.includes('favicon.ico') && !href.startsWith('/'), href || 'no href');
+
+  let ico = null;
+  try { ico = readFileSync(new URL('../' + href.replace('./', ''), import.meta.url)); } catch { /* the next check reports it */ }
+  const kind = ico ? ico.readUInt16LE(2) : -1;
+  const count = ico ? ico.readUInt16LE(4) : 0;
+  check('the file is an icon directory rather than a renamed PNG',
+    !!ico && kind === 1 && count > 0, ico ? `${count} images in ${ico.length} bytes` : 'the declared icon is not on disk');
+
+  // The sizes the Windows icon decoder asks for. A .ico whose entries are all PNG
+  // compressed reads fine in a browser and is what this file shipped first; the
+  // shell path is the one that wants the classic uncompressed DIB.
+  const DIB_SIZES = [16, 24, 32, 48, 64];
+  const entries = [];
+  for (let i = 0; i < count; i++) {
+    const at = 6 + 16 * i;   // ICONDIR is 6 bytes, ICONDIRENTRY is 16
+    const px = ico.readUInt8(at) || 256;   // 0 in this field means 256
+    const bytes = ico.readUInt32LE(at + 8), off = ico.readUInt32LE(at + 12);
+    const blob = ico.subarray(off, off + bytes);
+    const e = { px, bytes, off, blob, png: blob.subarray(0, 4).toString('latin1') === '\x89PNG' };
+    if (!e.png) {
+      // A classic DIB entry: BI_RGB, 32 bpp, and biHeight is *twice* the image
+      // height because the AND mask follows the pixels. A set bit in that mask
+      // means "transparent", so it has to agree with the alpha channel: code that
+      // reads the mask instead of the alpha draws a solid black square when the
+      // mask is left empty, and code that reads the alpha draws a hole where the
+      // mask lies.
+      e.dib = blob.readUInt32LE(0) === 40 && blob.readInt32LE(8) === 2 * px
+        && blob.readUInt16LE(12) === 1 && blob.readUInt16LE(14) === 32 && blob.readUInt32LE(16) === 0;
+      const maskRow = Math.floor((px + 31) / 32) * 4;
+      const maskAt = 40 + px * px * 4;
+      e.mask = maskAt + maskRow * px <= blob.length;
+      let agree = e.mask;
+      for (let r = 0; r < px && agree; r++) {
+        for (let x = 0; x < px; x++) {
+          const alpha = blob[40 + (r * px + x) * 4 + 3];
+          const bit = (blob[maskAt + r * maskRow + (x >> 3)] >> (7 - (x % 8))) & 1;
+          if (Boolean(bit) !== (alpha < 128)) { agree = false; break; }
+        }
+      }
+      e.maskOk = agree;
+    }
+    entries.push(e);
+  }
+  const sizes = entries.map(e => e.px);
+  const kinds = entries.map(e => `${e.px}:${e.png ? 'png' : 'dib'}`).join(' ');
+  check(`every entry points at a complete payload (${sizes.join('/')})`,
+    entries.every(e => e.off + e.bytes <= ico.length && (e.png || e.dib)), kinds);
+  check('the sizes Windows asks for are stored as classic 32-bit DIBs, not PNG',
+    DIB_SIZES.every(s => { const e = entries.find(x => x.px === s); return e && e.dib && !e.png; }), kinds);
+  check('every DIB mask agrees with its alpha channel, so no path draws a black square',
+    entries.filter(e => !e.png).every(e => e.mask && e.maskOk), kinds);
+  check('the sizes only browsers ask for stay PNG, which is what keeps the file small',
+    [128, 256].every(s => { const e = entries.find(x => x.px === s); return e && e.png; }), kinds);
+}
+
+group('4d. The icon is drawn out of the sheet, so it cannot quietly drift away from it');
+{
+  let gen = '';
+  try { gen = readFileSync(new URL('../tools/make_favicon.py', import.meta.url), 'utf8'); } catch { /* reported below */ }
+  check('a generator owns the icon, so it can be rebuilt rather than redrawn by hand', !!gen);
+  check('it reads the ring radii out of physics.js instead of restating them',
+    gen.includes('physics.js') && /rings:\\s\*/.test(gen));
+  check('it reads the four sheet colours out of the asset builder',
+    ['COL_BLUE', 'COL_WHITE', 'COL_RED', 'COL_LINE'].every(n => gen.includes(n)));
+  check('it does not copy any of those colours into itself',
+    !/0\.05,\s*0\.24/.test(gen) && !/0\.72,\s*0\.80/.test(gen) && !/0\.62,\s*0\.08/.test(gen));
+  check('it proves what it drew by reading the pixels back',
+    /getpixel/.test(gen) && /sampled_ring_pixels_off_by_at_most/.test(gen));
+}
+
 group('5. Three.js wiring');
 {
   check('index.html uses an import map for three + addons', /"imports"/.test(html) && /three@0\.\d+\.\d+\/build\/three\.module\.js/.test(html) && /three\/addons\//.test(html));

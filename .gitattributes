@@ -8,6 +8,10 @@
 *.bat text eol=crlf
 *.glb binary
 *.png binary
+# An .ico payload is raw pixels (DIBs for the small sizes) or a compressed PNG
+# stream (the large ones); a stray 0D 0A inside either would be eaten by the
+# catch-all rule above, the same corruption the reference photo hit once.
+*.ico binary
 *.webp binary
 *.jpg binary
 *.jpeg binary

@@ -1,4 +1,4 @@
-# Python bytecode from the Blender helper scripts (blender/*.py, tests/svg_peek.py)
+# Python bytecode from the helper scripts (blender/*.py, tools/*.py, tests/svg_peek.py)
 __pycache__/
 *.pyc
 

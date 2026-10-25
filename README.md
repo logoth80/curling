@@ -222,9 +222,12 @@ ai.js           candidate shots -> forward sim with physics.js -> endgame-weight
 release.js      pure logic: the release-quality table a human delivery is rolled against
 serve.mjs       dev server: serves this folder over http:// and opens the page — not part of the game
 play.cmd        the same thing as a double-click on Windows
+favicon.ico     the icon: the house, drawn out of the sheet's own numbers
 assets/         six GLB assets + generated textures (assets/tex)
 blender/        the authoring and visual-gate scripts, their reports, and the
                 reference photograph the stone handle was measured from
+tools/          make_favicon.py, which draws favicon.ico from those sources, and
+                check_windows_icon.ps1, which asks Windows whether it can read it
 tests/          four Node suites, plus svg_peek.py to look at the widget
 ```
 
@@ -239,9 +242,19 @@ creeps into the renderer.
 ```sh
 node tests/selftest.mjs    # 78 checks — physics, calibration, rules, scoring, the weight meter, the brushing model, the release table
 node tests/matchtest.mjs   # 29 checks — full matches, CPU strength ladder, timing, the two error models kept honest
-node tests/uitest.mjs      # 123 checks — DOM ids, key map, phases, cameras, the weight miniature, where a release may be rolled, the sweeper's stance and limbs (its joint solver is run, and every part the pose names is one the rig builds), whose handle angle, end resets, asset paths, import boundary
+node tests/uitest.mjs      # 135 checks — DOM ids, key map, phases, cameras, the weight miniature, where a release may be rolled, the sweeper's stance and limbs (its joint solver is run, and every part the pose names is one the rig builds), whose handle angle, the tab icon, what the Windows icon decoder is given, and where it comes from, end resets, asset paths, import boundary
 node tests/glbtest.mjs     # 100 checks — the shipped GLBs against the game's coordinate contract, the handle's shape, and camera framing
 ```
+
+One icon check can only run on Windows, because it asks Windows itself:
+
+```sh
+powershell -ExecutionPolicy Bypass -File tools/check_windows_icon.ps1
+```
+
+It calls the shell's own icon extractor, reads the bitmaps the shell built, and compares
+them against the bytes in `favicon.ico`; it exits non-zero if the shell cannot build the
+icon, if a corner comes back solid black, or if the colours it drew differ from the file.
 
 All four pass. Highlights of what they pin down:
 
@@ -526,6 +539,73 @@ the same figure through the game's own track camera into
 [blender/preview](blender/preview/fig_mid_stroke_follow.png) with the numbers beside it in
 [blender/_figure_report.json](blender/_figure_report.json). That is how the stance was
 measured against the real broom and the real camera before any of it went into the shot loop.
+
+### The tab icon is the house, drawn from the sheet
+
+`favicon.ico` is not a hand-drawn picture of a target. It is drawn from the numbers
+the sheet is actually built with: [tools/make_favicon.py](tools/make_favicon.py) reads
+the four ring radii out of `SHEET.rings` in `physics.js` and the four ring colours out
+of the material factors in `blender/build_assets.py`, then draws the house — blue
+twelve-foot, white eight-foot, red four-foot, white button, with the tee line and the
+centre line crossing it — into one `.ico` carrying 16, 24, 32, 48, 64, 128 and 256 px,
+49 KB in all. Each size is drawn from its own 8× supersample and averaged down, so no
+size in the file is a shrunk copy of another one.
+
+Two consequences of drawing the real thing small are left alone rather than corrected.
+The lines are the sheet's own 0.05 m, which is 2.7% of the house radius: at 16 px that
+is a fifth of a pixel, so the cross disappears except where the two lines meet, and what
+survives is rings and a dot. The button is a twelfth of the house, so at 16 px it is one
+dot. A version with the lines thickened to survive at 16 px would be a different sheet,
+and the icon is meant to be this one.
+
+The colour is the material, not the render. A glTF base-colour factor is linear, so the
+factors are encoded to sRGB before they become pixels; the previews in
+`blender/preview` sit lower than those bytes because they are shot under lights, which is
+a different measurement belonging to a different file. The generator checks its own work:
+it probes the mid-radius of every annulus along a diagonal, clear of the cross, and fails
+unless those pixels carry the sheet colours exactly. That check earned its place on the
+first run — LANCZOS ringing around the small, saturated button had shifted plain white
+pixels by eleven, which would have gone straight into the file a browser shows.
+
+The container carries two entry formats, and that is deliberate. The sizes Windows asks
+for — 16, 24, 32, 48 and 64 px — are stored as classic uncompressed 32-bit DIBs whose
+`biHeight` is twice the image height, the second half being the AND mask; 128 and 256 px
+stay PNG, because an uncompressed 256 px entry would cost eight times what it is worth
+and only browsers ask for those. The mask is derived from the alpha channel instead of
+left empty, which is not pedantry: a set bit in that mask means "this pixel is
+transparent", and the first version of these entries left the mask empty, so the bitmap
+Windows built came back with **opaque black corners** — the black square that icon
+folklore blames on "broken .ico files".
+
+[tools/check_windows_icon.ps1](tools/check_windows_icon.ps1) asks Windows rather than
+reasoning about it. It calls `shell32!ExtractIconEx`, reads the bitmaps the shell built
+for the large and the small icon, and compares them against the DIB entries in the file;
+it exits non-zero if a handle is missing, if a corner comes back solid black, or if the
+colours differ from the file by more than a rounding step. For the current file it
+reports both handles present, transparent corners, and a maximum channel difference of 0
+across the 640 fully-opaque pixels of the 32 px icon. Two things worth knowing before
+using it: `ExtractIconEx`'s second argument is an icon **index**, not a size selector —
+one call at index 0 returns the large and the small handle together, and reading that
+wrong once produced a confident "the shell produced no icon" that was the script's bug.
+And what it did *not* find: the all-PNG container this file shipped with also passed on
+this machine, both handles coming back transparent. PNG inside an `.ico` is not broken on
+modern Windows. The DIB entries are there because Explorer's icon paths and every older
+path predate PNG support, not because a measured failure demanded them.
+
+If Explorer still shows something else after the file changes, it is showing its cached
+icon for that path rather than the file: `ie4uinit.exe -show`, or an Explorer restart,
+is what makes it look again. The browser's tab icon has the same habit — a
+`favicon.ico` that once answered 404 stays missing until the page is reloaded.
+
+Groups 4c and 4d of [tests/uitest.mjs](tests/uitest.mjs) hold the rest of it: the page
+must declare the icon with a relative path, so the game still gets its icon when it is
+served from a subpath; the shipped file must parse as an icon directory whose entries are
+all complete payloads; the sizes Windows asks for must be 32-bit DIBs whose AND mask
+agrees pixel-for-pixel with the alpha channel; the sizes only browsers want must stay
+PNG; and the generator must keep reading the radii and the colours out of those two
+sources rather than copying them, which is the only reason the icon cannot quietly drift
+off the sheet. Regenerate it with `python tools/make_favicon.py`; it prints the radii,
+palette, entry table and mask verdict it used.
 
 ## Physics
 
