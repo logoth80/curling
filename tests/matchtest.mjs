@@ -10,10 +10,10 @@
 import {
   SHEET, RULES, PHYS, createMatch, startEnd, currentThrower, otherTeam,
   StoneWorld, makeStone, cloneStones, simulateDelivery, adjudicateDelivery,
-  finishEnd, scoreEnd, powerForDistance, distanceToButton, inHouse, inFreeGuardZone,
+  finishEnd, scoreEnd, powerForDistance, distanceForPower, distanceToButton, inHouse, inFreeGuardZone,
 } from '../physics.js';
 import { chooseShot, makeRng, DIFFICULTY, solveAim } from '../ai.js';
-import { RELEASE_TIERS, angleForOffset } from '../release.js';
+import { RELEASE_TIERS, rollRelease, applyRelease } from '../release.js';
 
 let pass = 0, fail = 0;
 function check(name, ok, detail = '') {
@@ -362,14 +362,20 @@ group('8. Scoring is recomputed independently at the end of every end');
   void distanceToButton; void inHouse; void inFreeGuardZone; void StoneWorld;
 }
 
-group('9. The two ways this game makes a delivery imperfect still tell one story');
+group('9. The two ways this game makes a delivery imperfect, and where they part');
 {
-  // A human delivery is made imprecise by release.js, a CPU delivery by DIFFICULTY
-  // in ai.js, and neither module knows the other exists. This is the only place that
-  // notices if they drift apart. What has to stay true is the *expected* comparison:
-  // a NORMAL CPU is off its line on every single throw, a player only on the tiers
-  // below a clean release, and the acceptance item "NORMAL must lose to a determined
-  // human sometimes" rests on the player being the sharper of the two on average.
+  // A human delivery is made imprecise by release.js, a CPU delivery by DIFFICULTY in
+  // ai.js, and neither module knows the other exists. This is the only place that
+  // notices if they drift apart. Two things have to stay true. The first is the
+  // *expected* comparison: a NORMAL CPU is wrong on every throw, a player only on the
+  // tiers below a clean release, and the acceptance item "NORMAL must lose to a
+  // determined human sometimes" rests on the player being the sharper of the two on
+  // average. The second is the shape of the two models, recorded rather than assumed,
+  // because they are no longer symmetric: since the release error moved onto the weight
+  // and the handle, a player is exactly on the line they sighted, while a CPU always
+  // carries aim noise. That noise models a plan chosen badly rather than hands that
+  // slipped, which is a CPU kind of error — but it is the sort of thing that quietly
+  // turns into a bug if nobody writes down which side is meant to have it.
   const LINE = SHEET.teeZ - SHEET.hackZ;              // 30 m — the standard draw
   const DEG = Math.PI / 180;
   const total = RELEASE_TIERS.reduce((s, t) => s + t.weight, 0);
@@ -378,33 +384,63 @@ group('9. The two ways this game makes a delivery imperfect still tell one story
   const atRest = (shot) => simulateDelivery([], { team: 'A', ...shot }, { id: `m${++n}` }).delivered;
   const perLevel = Math.abs(atRest({ aimDeg: 0, spin: 2, power: draw }).x - atRest({ aimDeg: 0, spin: 0, power: draw }).x) / 2;
 
-  const meanLine = RELEASE_TIERS.reduce((s, t) => s + (t.weight / total) * (t.line / 2), 0);   // E|offset| of a uniform ±span
-  const meanSpin = RELEASE_TIERS.reduce((s, t) => s + (t.weight / total) * (t.spin / 2), 0);   // E|handle error| in levels
-  const expectedHuman = Math.hypot(meanLine, meanSpin * perLevel);                            // two independent errors
-  const meanCpu = Math.tan(DIFFICULTY.normal.aimDeg * DEG) * LINE;
-  check('a player line is sharper where it counts — the expected error across a match against a NORMAL CPU on every throw',
-    expectedHuman < meanCpu,
-    `player ~${(expectedHuman * 100).toFixed(1)} cm at 30 m (${(meanLine * 100).toFixed(1)} cm of line plus ` +
-    `${(meanSpin * perLevel * 100).toFixed(1)} cm of handle, one handle level being ${(perLevel * 100).toFixed(0)} cm) ` +
-    `against NORMAL ${(meanCpu * 100).toFixed(1)} cm`);
+  // A uniform ±span has mean absolute error span/2, and the axes are independent, so
+  // the expected miss is the hypot of the expected magnitudes. The same arithmetic on
+  // both sides of the comparison is the point of writing it out here rather than
+  // quoting a number: if either table moves, both sides of this line move with it.
+  const meanShare = (key) => RELEASE_TIERS.reduce((s, t) => s + (t.weight / total) * (t[key] / 2), 0);
+  const meanWeight = meanShare('power') * LINE;                        // E|metres error| at a draw
+  const meanSpin = meanShare('spin');                                 // E|handle error|, in handle levels
+  const expectedHuman = Math.hypot(meanWeight, meanSpin * perLevel);
+  // The CPU's bands are absolute rather than relative: aim in degrees, weight as a
+  // fraction of full power, handle in levels. Converted here so the comparison is in
+  // metres on both sides.
+  const cpuAim = Math.tan(DIFFICULTY.normal.aimDeg * DEG) * LINE;
+  const cpuWeight = Math.abs(distanceForPower(draw + DIFFICULTY.normal.power) - distanceForPower(draw));
+  const cpuSpin = DIFFICULTY.normal.spinMistake * perLevel;
+  const expectedCpu = Math.hypot(cpuAim, cpuWeight, cpuSpin);
+  check('a player is the sharper delivery where it counts — the expected error across a match against a NORMAL CPU that is wrong on every throw',
+    expectedHuman < expectedCpu,
+    `player ~${expectedHuman.toFixed(3)} m at a 30 m draw (${meanWeight.toFixed(3)} m of weight, ` +
+    `${(meanSpin * perLevel).toFixed(3)} m of handle, one handle level being ${(perLevel * 100).toFixed(0)} cm) ` +
+    `against NORMAL ~${expectedCpu.toFixed(3)} m (${cpuAim.toFixed(3)} m of aim, ${cpuWeight.toFixed(3)} m of weight, ${cpuSpin.toFixed(3)} m of handle)`);
 
-  const worstHuman = Math.max(...RELEASE_TIERS.map(t => angleForOffset(t.line, LINE)));
-  const offShare = 100 * RELEASE_TIERS.filter(t => t.line > 0).reduce((s, t) => s + t.weight, 0) / total;
-  check('a player can be further off than a NORMAL CPU, but only on the tiers below a clean release — the choice, recorded',
-    worstHuman > DIFFICULTY.normal.aimDeg,
-    `worst ±${worstHuman.toFixed(3)}° on ${offShare.toFixed(0)}% of throws, NORMAL ±${DIFFICULTY.normal.aimDeg}° on all of them`);
+  const worstShare = Math.max(...RELEASE_TIERS.map(t => t.power));
+  // Which tiers can throw a player further off than a CPU ever is — not "the tiers
+  // below clean", because every tier now carries some weight error, but the ones whose
+  // band reaches past the CPU's whole spread. That is the honest boundary of the choice.
+  const cpuWorst = Math.hypot(cpuAim, cpuWeight, cpuSpin);
+  const beyond = RELEASE_TIERS.filter(t => t.power * LINE > cpuWorst);
+  const beyondShare = 100 * beyond.reduce((s, t) => s + t.weight, 0) / total;
+  check('a player can be further off than a NORMAL CPU, but only from the tiers whose band reaches past the whole CPU spread — the choice, recorded',
+    worstShare * LINE > cpuWorst,
+    `worst ±${(worstShare * LINE).toFixed(2)} m at a draw, against NORMAL ±${cpuWorst.toFixed(2)} m on every throw; ` +
+    `only ${beyond.map(t => `${t.name} ±${(t.power * LINE).toFixed(1)} m`).join(', ')} reach past it, ` +
+    `on ${beyondShare.toFixed(0)}% of throws, and only in the outer part of those bands`);
 
-  check('the release table carries no weight term: a human gets exactly the distance the meter stopped at, and a CPU does not',
-    RELEASE_TIERS.every(t => !('power' in t)) && DIFFICULTY.normal.power > 0,
-    `CPU weight noise ±${DIFFICULTY.normal.power} of full power`);
+  check('the two models are now deliberately different on purpose: a player never misses the line they sighted, a CPU always does',
+    RELEASE_TIERS.every(t => 'power' in t) && !('line' in RELEASE_TIERS[0]) && DIFFICULTY.normal.aimDeg > 0,
+    `human bands are ±${RELEASE_TIERS.map(t => `${t.power * 100}%/${t.spin} handle`).join(' ')} with no aim term; ` +
+    `NORMAL adds ±${DIFFICULTY.normal.aimDeg}° of aim, ${cpuAim.toFixed(3)} m at a draw, because its ladder models a plan chosen badly`);
+  const thrown = applyRelease({ aimDeg: 1.2, spin: 0.4, power: draw }, rollRelease(makeRng(99), { power: draw }));
+  check('and behaviourally the same: a real roll moves the weight and leaves the aim exactly where the player put it',
+    thrown.aimDeg === 1.2 && thrown.power !== draw,
+    `aim stayed 1.2°, power ${draw.toFixed(4)} became ${thrown.power.toFixed(4)}, handle ${thrown.spin.toFixed(3)}`);
 
-  const scriptMetres = Math.tan(HUMAN_SCRIPT.a * DEG) * LINE;
+  // The scripted humans in this file stand in for a player, so they may not be better
+  // than the game lets a player be — otherwise every win count above is a claim about a
+  // superhuman rather than about "a determined human".
+  const scriptWeight = (p) => Math.abs(distanceForPower(draw + p) - distanceForPower(draw));
+  const scriptMetres = scriptWeight(HUMAN_SCRIPT.p);
   check('the scripted human in this file is no more accurate than the game lets a player be, so the win counts above describe a player',
-    scriptMetres >= expectedHuman,
-    `script aim ${scriptMetres.toFixed(3)} m against the game's expected release ${expectedHuman.toFixed(3)} m at 30 m`);
+    scriptMetres >= meanWeight,
+    `script weight ±${HUMAN_SCRIPT.p} of full power is ${scriptMetres.toFixed(3)} m at a draw against the game's ` +
+    `expected release of ${meanWeight.toFixed(3)} m — and the fixture also carries ±${HUMAN_SCRIPT.a}° of aim ` +
+    `(${(Math.tan(HUMAN_SCRIPT.a * DEG) * LINE).toFixed(3)} m) that a player no longer has, which errs the other way`);
   check('and the rough stand-in is worse in the same shape, not in a different one',
-    HUMAN_ROUGH.a > HUMAN_SCRIPT.a && HUMAN_ROUGH.p > HUMAN_SCRIPT.p,
-    `rough ±${HUMAN_ROUGH.a}°/±${HUMAN_ROUGH.p} against practised ±${HUMAN_SCRIPT.a}°/±${HUMAN_SCRIPT.p}`);
+    HUMAN_ROUGH.p > HUMAN_SCRIPT.p && HUMAN_ROUGH.a > HUMAN_SCRIPT.a,
+    `rough ±${HUMAN_ROUGH.p} of full power (${scriptWeight(HUMAN_ROUGH.p).toFixed(3)} m) against practised ` +
+    `±${HUMAN_SCRIPT.p} (${scriptMetres.toFixed(3)} m); the aim term in both is only extra caution here`);
 }
 
 console.log(`\n${fail === 0 ? 'ALL OK' : 'FAILURES'} — ${pass} passed, ${fail} failed`);

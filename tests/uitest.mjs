@@ -210,7 +210,7 @@ group('2c. The release belongs to the throw, not to the aim');
     /isCPU\(t\) \? null :/.test(launch));
   check('a release the player could not see says so alongside the result, and a clean one stays silent',
     /tier !== 'good'/.test(settle) && /G\.release\.label/.test(settle));
-  check('the shot log reports the line and the handle, in centimetres and handle levels',
+  check('the shot log reports the weight — the share of the delivery it cost and how far that was in metres — and the handle in levels',
     /rows\.push\(\['release', describeRelease\(G\.release\)\]\)/.test(settle));
   check('a roll belongs to one delivery: it is cleared when the next shot is set up',
     /G\.release = null/.test(setup) && /G\.shot = \{/.test(setup));

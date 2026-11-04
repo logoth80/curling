@@ -1183,8 +1183,12 @@ function launchShot() {
   // here, once, against the table in release.js — never while aiming, or the preview
   // would change under the player's eye. G.shot keeps the intent that the preview,
   // the miniature and the HUD show; only the stone leaving the hack carries the
-  // error. There is deliberately no error in the weight: the stone goes as far as
-  // the meter said it would.
+  // error. The error is weight and handle: release.js resolves a share of the called
+  // distance into a power through the rules module's own stopping law, so what the meter
+  // stopped at is what was *called* and what the stone travels is what was *thrown*. A
+  // player is exactly on the line they sighted — the line is not part of a release
+  // error — and that asymmetry between a human delivery and a CPU plan is written down
+  // and measured in tests/matchtest.mjs group 9.
   G.release = isCPU(t) ? null : rollRelease(G.rng, G.shot);
   const shot = G.release ? applyRelease(G.shot, G.release) : G.shot;
   const v0 = launchSpeed(shot.power);

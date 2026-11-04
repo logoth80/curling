@@ -332,9 +332,9 @@ export function powerForDistance(dist, swept = false) {
 /**
  * The same law read the other way: how far this weight carries a stone with
  * nothing in front of it. `release.js` needs it because a release error belongs to
- * the throw being thrown — five centimetres at the end of a 20 m raise is a
- * different mistake from five centimetres at the end of a 30 m draw — and because
- * the unbrushed distance is the line the preview and the miniature show.
+ * the throw being thrown — one per cent of a 20 m raise is a different mistake from
+ * one per cent of a 30 m draw — and because the unbrushed distance is the delivery the
+ * preview and the miniature show.
  */
 export function distanceForPower(power, swept = false) {
   const a = swept ? PHYS.A_SWEEP : PHYS.A_BASE;

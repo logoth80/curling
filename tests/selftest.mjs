@@ -13,7 +13,7 @@ import {
   scoreEnd, hogViolation, inHouse, inFreeGuardZone, guardZoneViolation,
 } from '../physics.js';
 import { makeRng } from '../ai.js';
-import { RELEASE_TIERS, rollRelease, applyRelease, angleForOffset } from '../release.js';
+import { RELEASE_TIERS, rollRelease, applyRelease, describeRelease } from '../release.js';
 
 let pass = 0, fail = 0;
 const near = (a, b, tol) => Math.abs(a - b) <= tol;
@@ -299,129 +299,221 @@ group('9. The weight meter sweeps distance at a constant rate (the control the p
 // ---------------------------------------------------------------------------
 group('10. The release roll: the shot called vs the stone thrown (release.js)');
 {
-  const LINE = SHEET.teeZ - SHEET.hackZ;   // 30 m, hack to button — the line the rule is quoted against
+  const LINE = SHEET.teeZ - SHEET.hackZ;   // 30 m, hack to button — the line the bands are quoted against
   const draw = powerForDistance(LINE);
-  const shape = JSON.stringify(RELEASE_TIERS.map(t => [t.name, t.weight, t.spin, t.line]));
 
-  check('the table is the one the game asks for: 50 clean, 25 slightly off, 12 loose, 12 bad, with those spans',
+  // The bands are a share of *the delivery that was called*, not of the meter value.
+  // That is the whole design decision in this file and it is worth a check, because the
+  // two readings differ by about 2.2x (travel is quadratic in speed): read against the
+  // meter, a 30 m draw sits at power 0.700 and ±2% of that number is ±1.2 m, so even a
+  // clean release would miss by two thirds of the house and the bottom of the table
+  // would leave the sheet. See the header of release.js.
+  const shape = JSON.stringify(RELEASE_TIERS.map(t => [t.name, t.weight, t.spin, t.power]));
+  check('the table is the one the game asks for: 50 clean, 25 slightly off, 12 loose, 12 bad, with those bands',
     shape === JSON.stringify([
-      ['good', 50, 0.10, 0], ['ok', 25, 0.20, 0.10],
-      ['mediocre', 12, 0.40, 0.10], ['bad', 12, 0.40, 0.20],
+      ['good', 50, 0.10, 0.02], ['ok', 25, 0.20, 0.05],
+      ['mediocre', 12, 0.40, 0.09], ['bad', 12, 0.40, 0.15],
     ]), shape);
-  check('the frequencies are the ones asked for, and only the spans were raised',
+  check('the frequencies are untouched: only what the tiers are wrong *about* has changed',
     JSON.stringify(RELEASE_TIERS.map(t => t.weight)) === JSON.stringify([50, 25, 12, 12]),
-    `weights ${RELEASE_TIERS.map(t => t.weight).join('/')}, spans ±${RELEASE_TIERS.map(t => `${t.spin}/${t.line * 100} cm`).join(' ')}`);
+    `weights ${RELEASE_TIERS.map(t => t.weight).join('/')}`);
+  check('weight is wrong by 0-2% on the tiers that are not wrong, and by up to 15% on the one called bad, getting worse monotonically',
+    RELEASE_TIERS[0].power <= 0.02 && RELEASE_TIERS[RELEASE_TIERS.length - 1].power === 0.15 &&
+    RELEASE_TIERS.every((t, i) => i === 0 || t.power >= RELEASE_TIERS[i - 1].power),
+    `bands ±${(RELEASE_TIERS.map(t => t.power * 100).join('/'))}%`);
+  check('and no band is stated in degrees or centimetres any more: a release has no line error',
+    !('line' in RELEASE_TIERS[0]) && !('aimDegErr' in RELEASE_TIERS[0]),
+    Object.keys(RELEASE_TIERS[0]).join('/'));
 
   // Frequencies and bounds over a fixed seed, so a failure is reproducible.
   const rng = makeRng(20261023), N = 40000;
   const total = RELEASE_TIERS.reduce((s, t) => s + t.weight, 0);
-  const counts = {}, overSpan = [], dirtyClean = [];
+  const counts = {}, overBand = [], unreachable = [], powerOutOfRange = [];
+  for (const t of RELEASE_TIERS) counts[t.name] = 0;
+  let widestReached = {};
+  for (const t of RELEASE_TIERS) widestReached[t.name] = 0;
   for (let i = 0; i < N; i++) {
     const r = rollRelease(rng, { power: draw });
-    counts[r.tier] = (counts[r.tier] || 0) + 1;
+    counts[r.tier]++;
     const t = RELEASE_TIERS.find(x => x.name === r.tier);
-    if (Math.abs(r.offCm) / 100 > t.line + 1e-12 || Math.abs(r.spinErr) > t.spin + 1e-12) {
-      overSpan.push(`${r.tier} line ${r.offCm.toFixed(1)} cm handle ${r.spinErr.toFixed(3)}`);
+    if (Math.abs(r.pct) > t.power + 1e-12 || Math.abs(r.spinErr) > t.spin + 1e-12) {
+      overBand.push(`${r.tier} weight ${(r.pct * 100).toFixed(1)}% handle ${r.spinErr.toFixed(3)}`);
     }
-    if (r.tier === 'good' && (r.offCm !== 0 || r.aimDegErr !== 0)) dirtyClean.push(r.offCm);
+    widestReached[r.tier] = Math.max(widestReached[r.tier], Math.abs(r.pct));
+    const p = draw + r.powerErr;
+    if (p < 0 || p > 1) powerOutOfRange.push(`${r.tier} power ${p.toFixed(4)}`);
   }
   const freq = RELEASE_TIERS.map(t =>
-    `${t.name} ${(100 * (counts[t.name] || 0) / N).toFixed(2)}% vs ${t.weight}/${total} = ${(100 * t.weight / total).toFixed(2)}%`);
+    `${t.name} ${(100 * counts[t.name] / N).toFixed(2)}% vs ${t.weight}/${total} = ${(100 * t.weight / total).toFixed(2)}%`);
   check('the draws land on the table, read as weights and normalised rather than as percentages',
-    RELEASE_TIERS.every(t => Math.abs(100 * (counts[t.name] || 0) / N - 100 * t.weight / total) < 1),
+    RELEASE_TIERS.every(t => Math.abs(100 * counts[t.name] / N - 100 * t.weight / total) < 1),
     freq.join('  '));
-  check('no draw goes past its own tier', overSpan.length === 0, overSpan.slice(0, 3).join(' | '));
-  check('a good release is a clean line, not a small one: exactly zero, every time', dirtyClean.length === 0,
-    `${dirtyClean.length} clean releases carried a line error`);
+  check('no draw goes past its own band, on either axis', overBand.length === 0, overBand.slice(0, 3).join(' | '));
+  check('every band is reachable, including the 15% one — a band nobody can roll is dead code',
+    RELEASE_TIERS.every(t => t.power === 0 || widestReached[t.name] >= t.power * 0.98),
+    RELEASE_TIERS.map(t => `${t.name} reached ${(widestReached[t.name] * 100).toFixed(1)}% of ±${t.power * 100}%`).join('  '));
+  check('the applied power always stays inside the calibrated range', powerOutOfRange.length === 0,
+    powerOutOfRange.slice(0, 3).join(' | '));
 
-  // What the centimetres become as an angle. physics.js states its own sensitivity
-  // in solveAim (dx/daim ~= -run length); these are the figures the README quotes.
-  const widest = Math.max(...RELEASE_TIERS.map(t => t.line));
-  const a10 = angleForOffset(0.10, LINE), aWide = angleForOffset(widest, LINE);
-  check('ten centimetres at the end of a 30 m draw is 0.191 degrees of line', near(a10, 0.1910, 5e-4), `${a10.toFixed(4)}°`);
-  check(`the widest line the table can roll (${Math.round(widest * 100)} cm) is 0.38 degrees at a draw`,
-    near(aWide, 0.3820, 5e-4), `${aWide.toFixed(4)}°`);
-  check('the conversion round-trips: tan(angle) times the run is the offset',
-    near(Math.tan(aWide * DEG) * LINE, widest, 1e-12), `${(Math.tan(aWide * DEG) * LINE).toFixed(6)} m`);
-  check('a shorter throw is sized against its own line, so it gets the same centimetres at its end',
-    near(Math.tan(angleForOffset(0.10, 20) * DEG) * 20, 0.10, 1e-12) && angleForOffset(0.10, 20) > a10,
-    `20 m needs ${angleForOffset(0.10, 20).toFixed(4)}° where 30 m needs ${a10.toFixed(4)}°`);
-
-  // And what that angle does on the ice — measured, not assumed. The centimetres
-  // come from the table itself, so the test can never pass against a table the game
-  // no longer rolls.
-  const lineSpans = [...new Set(RELEASE_TIERS.map(t => t.line))].filter(l => l > 0);
-  const rest = (shot) => {
-    const s = simulateDelivery([], { team: 'A', ...shot }, { id: 'S' }).delivered;
-    return { x: s.x, z: s.z };
+  // A generator whose answers are known, so a check can ask for one tier and one place
+  // inside that tier's band and still exercise the real rollRelease. The three draws are
+  // tier, share, handle: -1 and +1 are the ends of the band, 0 is dead on, and the
+  // third at 0.5 means handle 0, which keeps the two axes separable.
+  const CUM = []; { let acc = 0; for (const t of RELEASE_TIERS) { acc += t.weight; CUM.push(acc); } }
+  const TOTAL = CUM[CUM.length - 1];
+  const rigged = (name, dir, handle = 0.5) => {
+    const i = RELEASE_TIERS.findIndex(t => t.name === name);
+    const pick = (CUM[i] - RELEASE_TIERS[i].weight / 2) / TOTAL;   // safely inside that tier
+    let n = 0;
+    return () => [pick, (dir + 1) / 2, handle][n++];
   };
-  for (const run of [LINE, 20]) {
-    for (const spin of [0, 2]) {
-      for (const cm of lineSpans) {
-        const base = { aimDeg: 0, spin, power: powerForDistance(run) };
-        const b = rest(base);
-        const r = {
-          tier: 'bad', label: '', runM: run, offCm: cm * 100, spinErr: 0,
-          aimDegErr: angleForOffset(cm, distanceForPower(powerForDistance(run))),
-        };
-        const g = rest(applyRelease(base, r));
-        const moved = Math.hypot(g.x - b.x, g.z - b.z);
-        check(`a ${Math.round(cm * 100)} cm line error puts the stone that far off at ${Math.round(run)} m with handle ${spin}`,
-          near(moved, cm, 0.004),
-          `moved ${moved.toFixed(4)} m at ${r.aimDegErr.toFixed(4)}° (base rest x ${b.x.toFixed(3)} z ${b.z.toFixed(3)})`);
-      }
+
+  // What a band means as a distance, against the rules module's own stopping law. The
+  // figures come from the table, so this can never pass against a table the game no
+  // longer rolls.
+  for (const run of [LINE, 20, 12]) {
+    const p = powerForDistance(run);
+    const worst = [];
+    for (const t of RELEASE_TIERS) for (const sign of [1, -1]) {
+      const share = t.power * sign;
+      const r = rollRelease(rigged(t.name, sign), { power: p });
+      const g = applyRelease({ aimDeg: 0, spin: 0, power: p }, r);
+      const want = run * (1 + share);
+      if (!near(distanceForPower(g.power), want, 1e-9)) worst.push(`${t.name} ${sign > 0 ? 'long' : 'short'} ran ${distanceForPower(g.power).toFixed(3)} m, wanted ${want.toFixed(3)}`);
+      if (!near(r.metres, want - run, 1e-9)) worst.push(`${t.name} ${sign > 0 ? 'long' : 'short'} reported ${r.metres.toFixed(3)} m, wanted ${(want - run).toFixed(3)}`);
+      if (!near(r.pct, share, 1e-12)) worst.push(`${t.name} reported ${(r.pct * 100).toFixed(2)}%, wanted ${(share * 100).toFixed(2)}%`);
     }
+    check(`at a called ${Math.round(run)} m delivery every band becomes exactly that share of the run, both directions`,
+      worst.length === 0, worst.slice(0, 3).join(' | ') ||
+      `±${RELEASE_TIERS.map(t => `${t.name} ${(t.power * run).toFixed(2)} m`).join(' ')}`);
   }
 
-  // The handle half of the table, in the units the game already calibrates curl in.
-  const straight = rest({ aimDeg: 0, spin: 0, power: draw });
-  const perLevel = Math.abs(rest({ aimDeg: 0, spin: 2, power: draw }).x - straight.x) / 2;
+  // And what it does on the ice, measured against the same delivery thrown clean. The
+  // short direction is always still in play, so it measures the whole error.
+  const atRest = (shot, id) => simulateDelivery([], { team: 'A', ...shot }, { id }).delivered;
+  for (const run of [LINE, 20, 12]) {
+    const p = powerForDistance(run);
+    const clean = atRest({ aimDeg: 0, spin: 0, power: p }, 'clean');
+    const bad = RELEASE_TIERS[RELEASE_TIERS.length - 1];
+    const r = rollRelease(rigged(bad.name, -1), { power: p });
+    const g = atRest(applyRelease({ aimDeg: 0, spin: 0, power: p }, r), 'badshort');
+    const short = clean.z - g.z;
+    check(`the worst band on the table actually leaves the stone ${(bad.power * run).toFixed(2)} m short at a called ${Math.round(run)} m`,
+      near(short, bad.power * run, 0.01),
+      `measured ${short.toFixed(3)} m short (clean rest Z=${clean.z.toFixed(2)}, this one Z=${g.z.toFixed(2)})`);
+  }
+
+  // The two ends of the table now reach two different rules outcomes, which is the
+  // point of the change: a bad release is not a small miss, it is a delivery that costs
+  // you the stone. Both are measured rather than asserted from the arithmetic.
+  {
+    const p = powerForDistance(LINE);
+    const bad = RELEASE_TIERS[RELEASE_TIERS.length - 1];
+    const long = atRest(applyRelease({ aimDeg: 0, spin: 0, power: p },
+      rollRelease(rigged(bad.name, 1), { power: p })), 'badlong');
+    check('a bad release long at a draw carries the stone through the house and out past the back line',
+      long.removed && long.outReason === 'back line',
+      `Z=${long.z.toFixed(2)} out=${long.outReason}`);
+
+    const p20 = powerForDistance(20);
+    const short = atRest(applyRelease({ aimDeg: 0, spin: 0, power: p20 },
+      rollRelease(rigged(bad.name, -1), { power: p20 })), 'hogged');
+    const clean20 = atRest({ aimDeg: 0, spin: 0, power: p20 }, 'clean20');
+    check('a bad release short of a raise does not make the far hog line, which is what a bad release does to a raise',
+      hogViolation(short) && !hogViolation(clean20),
+      `stopped Z=${short.z.toFixed(2)} against hogFarZ=${SHEET.hogFarZ}; the same raise thrown clean stops at Z=${clean20.z.toFixed(2)}`);
+  }
+
+  // Across a match the model still has to leave the player scoring most of the time.
+  // These are the balance numbers for the change, measured from real rolls.
+  {
+    const rng2 = makeRng(20261104), M = 2000;
+    const base = { aimDeg: 0, spin: 0, power: draw };
+    const clean = atRest(base, 'cleanbalance');
+    const offs = [];
+    let lost = 0;
+    for (let i = 0; i < M; i++) {
+      const g = atRest(applyRelease(base, rollRelease(rng2, base)), `b${i}`);
+      if (g.removed) lost++;
+      offs.push(Math.hypot(g.x - clean.x, g.z - clean.z));
+    }
+    offs.sort((a, b) => a - b);
+    const mean = offs.reduce((a, b) => a + b, 0) / M;
+    const median = offs[M >> 1];
+    check('the expected delivery is still an attempt to score: the mean miss sits inside the eight-foot radius, not near the twelve-foot one',
+      mean < SHEET.rings.eight,
+      `mean ${mean.toFixed(3)} m, median ${median.toFixed(3)} m, p95 ${offs[Math.floor(M * 0.95)].toFixed(3)} m against eight-foot ${SHEET.rings.eight} m / twelve-foot ${SHEET.rings.twelve} m`);
+    check('and it costs the stone on about one delivery in a hundred, not one in ten',
+      lost / M < 0.03,
+      `${lost} of ${M} called draws finished out of play (${(100 * lost / M).toFixed(2)}%)`);
+  }
+
+  // The handle half of the table, in the units the game already calibrates curl in —
+  // unchanged by this, and still worth pinning next to the new half.
+  const straight = atRest({ aimDeg: 0, spin: 0, power: draw }, 'h0');
+  const perLevel = Math.abs(atRest({ aimDeg: 0, spin: 2, power: draw }, 'h2').x - straight.x) / 2;
   const widestSpin = Math.max(...RELEASE_TIERS.map(t => t.spin));
-  const h1 = rest(applyRelease({ aimDeg: 0, spin: 0, power: draw },
-    { tier: 'ok', label: '', runM: LINE, offCm: 0, spinErr: 0.1, aimDegErr: 0 }));
+  const h1 = atRest(applyRelease({ aimDeg: 0, spin: 0, power: draw }, { powerErr: 0, spinErr: 0.1 }), 'h1');
   check('a tenth of a handle is a tenth of the measured arc per level — no new constant enters the world',
     near(Math.abs(h1.x - straight.x), 0.1 * perLevel, 0.004),
     `handle +0.1 = ${(Math.abs(h1.x - straight.x) * 100).toFixed(1)} cm, one level = ${(perLevel * 100).toFixed(1)} cm`);
-  const hMax = rest(applyRelease({ aimDeg: 0, spin: 0, power: draw },
-    { tier: 'bad', label: '', runM: LINE, offCm: 0, spinErr: widestSpin, aimDegErr: 0 }));
-  check(`the widest handle the table rolls is that fraction of a turn of line by itself, which is why the handle half dominates`,
+  const hMax = atRest(applyRelease({ aimDeg: 0, spin: 0, power: draw }, { powerErr: 0, spinErr: widestSpin }), 'hmax');
+  check(`the widest handle the table rolls is that fraction of a turn of line by itself, which is why the handle half still matters`,
     near(Math.abs(hMax.x - straight.x), widestSpin * perLevel, 0.004),
     `±${widestSpin} of handle = ${(Math.abs(hMax.x - straight.x) * 100).toFixed(1)} cm at draw weight`);
 
-  // Both halves at once, measured against the same line thrown clean — the intended
-  // curl is not an error, so it is not in the baseline.
-  const curved = rest({ aimDeg: 0, spin: 2, power: draw });
-  const both = rest(applyRelease({ aimDeg: 0, spin: 2, power: draw },
-    { tier: 'bad', label: '', runM: LINE, offCm: widest * 100, spinErr: widestSpin, aimDegErr: aWide }));
-  const worstBad = Math.abs(both.x - curved.x);
-  check('the worst release the table can produce, both halves agreeing, is half a metre off the line at a draw',
-    worstBad > 0.40 && worstBad < 0.60, `${(worstBad * 100).toFixed(1)} cm off the line at draw weight`);
-  check('a bad release on its own cannot throw a called draw out of the house: the cost is precision, not a coin flip',
-    worstBad < SHEET.rings.twelve,
-    `${(worstBad * 100).toFixed(1)} cm of miss against a ${(SHEET.rings.twelve * 100).toFixed(0)} cm house radius`);
-  const cancels = rest(applyRelease({ aimDeg: 0, spin: 2, power: draw },
-    { tier: 'bad', label: '', runM: LINE, offCm: widest * 100, spinErr: -widestSpin, aimDegErr: aWide }));
-  check('and the two errors do not always add: opposite ways they very nearly cancel',
-    Math.abs(cancels.x - curved.x) < 0.15, `${(Math.abs(cancels.x - curved.x) * 100).toFixed(1)} cm off the line`);
+  // What the change took away, stated as a check so it cannot come back unnoticed.
+  const untouched = applyRelease({ aimDeg: 3.4, spin: -1, power: draw },
+    rollRelease(rigged('bad', 1), { power: draw }));
+  check('a release never moves the line: the player is exactly on the line they sighted',
+    untouched.aimDeg === 3.4, `aimDeg stayed ${untouched.aimDeg}`);
+  check('but it does move the weight: the meter value is the intent, not the launch',
+    applyRelease({ aimDeg: 0, spin: 0, power: draw },
+      rollRelease(rigged('ok', 1), { power: draw })).power !== draw,
+    `called power ${draw.toFixed(4)} of full power, launched at ${applyRelease({ aimDeg: 0, spin: 0, power: draw }, rollRelease(rigged('ok', 1), { power: draw })).power.toFixed(4)}`);
 
-  const applied = applyRelease({ aimDeg: 3.4, spin: -1, power: draw },
-    { tier: 'bad', label: '', runM: LINE, offCm: widest * 100, spinErr: widestSpin, aimDegErr: aWide });
-  check('the roll never touches the weight: the stone goes exactly as far as the meter said',
-    applied.power === draw, `power stayed ${applied.power}`);
-  check('a full handle is still a full handle: the load stays inside the calibrated range',
-    applyRelease({ aimDeg: 0, spin: 3, power: draw }, { aimDegErr: 0, spinErr: widestSpin }).spin === 3 &&
-    applyRelease({ aimDeg: 0, spin: -3, power: draw }, { aimDegErr: 0, spinErr: -widestSpin }).spin === -3);
-  check('a release at full aim is not folded back at the edge of the dial — that limit is the control, not the ice',
-    near(applyRelease({ aimDeg: RULES.AIM_MAX_DEG, spin: 0, power: draw }, { aimDegErr: aWide, spinErr: 0 }).aimDeg,
-      RULES.AIM_MAX_DEG + aWide, 1e-12), `${(RULES.AIM_MAX_DEG + aWide).toFixed(3)}°`);
+  // The share is sized against the unbrushed run, because that is what the preview and
+  // the miniature showed; brushing is a separate effect the player asked for.
+  {
+    const r = rollRelease(rigged('ok', 1), { power: draw });
+    check('the band is measured against the unbrushed distance the preview promised, not against swept ice',
+      near(r.runM, distanceForPower(draw), 1e-12) && distanceForPower(draw, true) > r.runM,
+      `unbrushed ${distanceForPower(draw).toFixed(2)} m, swept ${distanceForPower(draw, true).toFixed(2)} m, roll used ${r.runM.toFixed(2)} m`);
+  }
+
+  // The clamp is defensive: inside the meter's own travel band it never binds, and the
+  // log then describes the folded delivery rather than the intended one.
+  {
+    const inBand = [powerForDistance(RULES.POWER_MIN_TRAVEL), powerForDistance(RULES.POWER_MAX_TRAVEL)];
+    const bound = inBand.map(p => applyRelease({ aimDeg: 0, spin: 0, power: p },
+      rollRelease(rigged('bad', 1), { power: p })).power).filter(p => p >= 1);
+    const hand = applyRelease({ aimDeg: 0, spin: 0, power: 1 },
+      rollRelease(rigged('bad', 1), { power: 1 }));
+    check('within the meter band nothing is ever clamped; beyond it the fold is honest about what will happen',
+      bound.length === 0 && hand.power === 1 && near(rollRelease(rigged('bad', 1), { power: 1 }).metres, 0, 1e-12),
+      `at 14 m and 36 m the launched powers were ${inBand.map(p => p.toFixed(3)).join(' / ')} -> never reached; at power 1.000 a +15% ask folds to power 1 and reports ${rollRelease(rigged('bad', 1), { power: 1 }).metres.toFixed(3)} m`);
+  }
+
+  // The line the player reads in the shot log. It describes the delivery that happened.
+  {
+    const longR = { label: 'loose release', runM: LINE, metres: 2.07, pct: 0.069, powerErr: 0.03, spinErr: -0.24 };
+    const shortR = { ...longR, metres: -4.20, pct: -0.14, label: 'bad release' };
+    const dead = { label: 'clean release', runM: LINE, metres: 0.04, pct: 0.0013, powerErr: 0, spinErr: 0.02 };
+    const a = describeRelease(longR), b = describeRelease(shortR), c = describeRelease(dead);
+    check('the shot log reports the handle and the weight, with the share and the metres it cost, and says which way',
+      /loose release · handle −0\.24 · weight \+7% · 2\.1 m long/.test(a) &&
+      /bad release · handle −0\.24 · weight −14% · 4\.2 m short/.test(b), `${a}  //  ${b}`);
+    check('a delivery that made its distance is called what curlers call it, not rounded to zero per cent',
+      /dead weight/.test(c) && !/weight dead weight/.test(c), c);
+  }
 
   const r1 = rollRelease(makeRng(4242), { power: draw }), r2 = rollRelease(makeRng(4242), { power: draw });
   check('the same seed is the same release, so a match is still replayable from its seed',
-    JSON.stringify(r1) === JSON.stringify(r2), `${r1.tier} ${r1.offCm.toFixed(1)} cm`);
+    JSON.stringify(r1) === JSON.stringify(r2), `${r1.tier} ${(r1.pct * 100).toFixed(1)}%`);
   check('a different seed is a different release',
     JSON.stringify(r1) !== JSON.stringify(rollRelease(makeRng(4243), { power: draw })));
-  const twice = rest(applyRelease({ aimDeg: 0, spin: 1, power: draw }, r1));
-  const twice2 = rest(applyRelease({ aimDeg: 0, spin: 1, power: draw }, r1));
+  const twice = atRest(applyRelease({ aimDeg: 0, spin: 1, power: draw }, r1), 'd1');
+  const twice2 = atRest(applyRelease({ aimDeg: 0, spin: 1, power: draw }, r1), 'd2');
   check('the world stays deterministic about it: that release replays to the centimetre',
     twice.x === twice2.x && twice.z === twice2.z, `x ${twice.x.toFixed(5)} z ${twice.z.toFixed(5)}`);
 }
