@@ -12,7 +12,7 @@
  *
  *   node tests/uitest.mjs
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { RULES, SHEET, CAL, makeStone, simulateDelivery, powerForDistance, meterTravel } from '../physics.js';
 import {
   TRACK, buildStaticSvg, buildDynamicSvg, weightReadout,
@@ -754,6 +754,24 @@ group('4d. The icon is drawn out of the sheet, so it cannot quietly drift away f
     !/0\.05,\s*0\.24/.test(gen) && !/0\.72,\s*0\.80/.test(gen) && !/0\.62,\s*0\.08/.test(gen));
   check('it proves what it drew by reading the pixels back',
     /getpixel/.test(gen) && /sampled_ring_pixels_off_by_at_most/.test(gen));
+}
+
+group('4e. It is published at a subpath by GitHub Pages, so only relative URLs can work');
+{
+  // The repository is served at https://logoth80.github.io/curling/. A path that
+  // starts with a slash resolves against the HOST, not the game, and misses
+  // everything; this is the one structural thing that decides whether the pushed
+  // site runs at all, and it is not visible from a dev server on a port root.
+  const attrs = [...html.matchAll(/(?:src|href)\s*=\s*"\//g)].map(m => m[0]);
+  check('index.html never asks the host root for anything', attrs.length === 0, attrs.join(' '));
+  const cssRoot = [...html.matchAll(/url\(\s*['"]?\//g)].map(m => m[0]);
+  check('no stylesheet url() reaches past the page either', cssRoot.length === 0, cssRoot.join(' '));
+  const jsRoot = [...js.matchAll(/['"`]\/(?:assets|tests|blender|tools)\//g)].map(m => m[0]);
+  check('main.js loads its own files relative to the page, not the origin',
+    jsRoot.length === 0, jsRoot.join(' '));
+  check('Jekyll is skipped, so Pages serves these bytes rather than building them',
+    existsSync(new URL('../.nojekyll', import.meta.url)),
+    'nothing in the game needs a build step, and the binary assets are byte-exact in git');
 }
 
 group('5. Three.js wiring');

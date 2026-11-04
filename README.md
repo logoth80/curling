@@ -9,6 +9,19 @@ Built to the spec in [GAME_PROMPT.md](GAME_PROMPT.md).
 
 ## Run it
 
+**In a browser, right now:** <https://logoth80.github.io/curling/> — GitHub Pages
+publishes this repository from `main`, and pushing `main` redeploys it a minute or two
+later. Two things make that work, and group 4e of [tests/uitest.mjs](tests/uitest.mjs)
+keeps them honest: every URL the page uses is relative to the page (a project page is
+served under a `/curling/` subpath, so a path starting with `/` would resolve against
+the host and find nothing), and `.nojekyll` is committed so Pages serves these bytes
+rather than running a Jekyll build over them first — nothing here needs a build. What
+the CDN hands back is byte-identical to what is in the repository, GLB hashes included,
+because [.gitattributes](.gitattributes) marks the binaries as binary against the LF
+catch-all and `assets/*.glb` are served as `model/gltf-binary`.
+
+Or from a checkout, which is what you want while editing:
+
 ```sh
 node serve.mjs
 ```
@@ -223,6 +236,7 @@ release.js      pure logic: the release-quality table a human delivery is rolled
 serve.mjs       dev server: serves this folder over http:// and opens the page — not part of the game
 play.cmd        the same thing as a double-click on Windows
 favicon.ico     the icon: the house, drawn out of the sheet's own numbers
+.nojekyll       empty marker: Pages publishes this folder as it is, with no Jekyll build
 assets/         six GLB assets + generated textures (assets/tex)
 blender/        the authoring and visual-gate scripts, their reports, and the
                 reference photograph the stone handle was measured from
@@ -242,7 +256,7 @@ creeps into the renderer.
 ```sh
 node tests/selftest.mjs    # 78 checks — physics, calibration, rules, scoring, the weight meter, the brushing model, the release table
 node tests/matchtest.mjs   # 29 checks — full matches, CPU strength ladder, timing, the two error models kept honest
-node tests/uitest.mjs      # 135 checks — DOM ids, key map, phases, cameras, the weight miniature, where a release may be rolled, the sweeper's stance and limbs (its joint solver is run, and every part the pose names is one the rig builds), whose handle angle, the tab icon, what the Windows icon decoder is given, and where it comes from, end resets, asset paths, import boundary
+node tests/uitest.mjs      # 139 checks — DOM ids, key map, phases, cameras, the weight miniature, where a release may be rolled, the sweeper's stance and limbs (its joint solver is run, and every part the pose names is one the rig builds), whose handle angle, the tab icon, what the Windows icon decoder is given, and where it comes from, end resets, asset paths, that nothing asks the host root for a path, import boundary
 node tests/glbtest.mjs     # 100 checks — the shipped GLBs against the game's coordinate contract, the handle's shape, and camera framing
 ```
 
