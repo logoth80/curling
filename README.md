@@ -122,22 +122,23 @@ air), and the device pass compares the rectangle of every control against every 
 one in both orientations — button against handle cells, explanation against miniature,
 scoreboard against shot log.
 
-What is proven and what is not. The flow was driven in headless Edge at 390×844 and
-844×390 through the DevTools protocol with real `Input.dispatchTouchEvent` input, and
-measured: a 120 px drag moved the projected line's stop marker 42.9 px sideways in the
-miniature and the same drag back restored it to 0.00 px; a 30 px drag was worth exactly
-a quarter of it; the mirrored drag was its negative; tapping a handle cell lit that cell
-and bent the projected path by 14.8 px where a straight line bends 0; holding the action
-button ran the marker to 15.7 m and letting go threw the stone there; holding the same
-button during the run brushed, and the shot log afterwards reported the release. Those
-numbers came from a pass that found two layout faults — the explanation panel covering
-the play, and a legend that could not be read — and the fixes those faults produced
-(the `.roomy` half-sentence, the removed legend, the height of the instrument band) are
-arithmetic from the rectangles that pass measured, re-checked by `uitest`'s source rules
-but not yet re-screened on a phone viewport; the rectangle comparisons above are in the
-device pass waiting for that re-screen. It has not been tried with a thumb on real
-glass, and that harness renders WebGL through SwiftShader. See
-[Known limitations](#known-limitations).
+What is proven and what is not. The pass that measured all of this is in the repository
+now — `node tests/device.mjs`, 41 checks, green — and the flow was driven in headless
+Edge at 390×844 and 844×390 through the DevTools protocol with real
+`Input.dispatchTouchEvent` input. Measured: a 120 px drag moved the projected line's stop
+marker 42.9 px sideways in the miniature and the same drag back restored it to 0.00 px; a
+30 px drag was worth exactly a quarter of it; the mirrored drag was its negative; tapping
+a handle cell lit that cell and bent the projected path by 14.8 px where a straight line
+bends 0; holding the action button ran the marker to 20.5 m and letting go threw the
+stone at the weight under the marker; holding the same button during the run brushed, and
+the shot log afterwards reported the release. The layout half of the pass is what the
+first phone look could not be settled by reasoning: the scoreboard band ends at y = 87, so
+the explanation panel starts at 100 and covers 15.6% of the screen while never standing
+on the play; the explanation and the shot log are bounded at 52vw and 34vw so about 36 px
+of air separates them on a 390 px screen; and no control's rectangle overlaps another
+control's, the miniature's, the scoreboard's or the shot log's in either orientation. It
+has not been tried with a thumb on real glass, and that harness renders WebGL through
+SwiftShader. See [Known limitations](#known-limitations).
 
 ### The camera stays with the play
 
@@ -333,6 +334,22 @@ One icon check can only run on Windows, because it asks Windows itself:
 ```sh
 powershell -ExecutionPolicy Bypass -File tools/check_windows_icon.ps1
 ```
+
+The phone pass is not one of those four. It needs a browser and a served copy of the
+game, and a desktop browser lying about being a phone is not enough — the DevTools
+emulation inside the script is what makes `(any-pointer: coarse)` true in the page, which
+is the signal the game switches its layer on:
+
+```sh
+python -m http.server 8123 --bind 127.0.0.1   # from the repository root
+node tests/device.mjs                         # 41 checks; EDGE=... for another Chromium build
+```
+
+Screenshots land in `tests/device-shots/`, gitignored on purpose: evidence, not source.
+It drives real `Input.dispatchTouchEvent`, which is the only thing in this environment
+that produces real PointerEvents in the page; synthetic key events through the protocol
+never reach the game, which is why the keyboard path is tested by the suites above and
+not by this one.
 
 It calls the shell's own icon extractor, reads the bitmaps the shell built, and compares
 them against the bytes in `favicon.ico`; it exits non-zero if the shell cannot build the
@@ -949,15 +966,21 @@ second time on a CPU delivery, and never while the miniature is being fed.
   ([blender/preview_figure.py](blender/preview_figure.py)). Each of those is a firmer
   claim about those views than a screenshot of the running game would be.
 - That bullet still holds for the desktop game, with one exception, because the touch
-  layer needed a viewport rather than a source check: the phone flow has been driven in
-  headless Edge over the DevTools protocol at 390×844 and 844×390 with real touch
-  events, and the figures quoted in the [phone section](#on-a-phone-the-same-five-controls-in-the-hand)
-  were measured out of that run, with screenshots. That is a browser, but a confined
+  layer needed a viewport rather than a source check: the phone flow is driven by
+  [tests/device.mjs](tests/device.mjs) in headless Edge over the DevTools protocol at
+  390×844 and 844×390 with real touch events — including the rectangle comparisons that
+  a first look at the phone proved necessary, since reasoning about a layout had missed
+  two overlaps in it — and the figures quoted in the [phone section](#on-a-phone-the-same-five-controls-in-the-hand)
+  come out of that run, with screenshots. That is a browser, but a confined
   one rendering WebGL through SwiftShader: it proves the controls, the geometry of a
-  drag and the labels. What only a real device would tell me is still unproven here —
+  drag, the labels, and that no two controls occupy the same ground. What only a real
+  device would tell me is still unproven here —
   the feel of a fingertip on a drag (its resolution is measured in metres and asserted;
   its feel is a judgement), a notch or home indicator with real safe-area values, and a
-  tablet's wider viewport, which sits between the two layouts that were run. The
+  tablet's wider viewport, which sits between the two layouts that were run. One thing I
+  can see in the screenshots and have not fixed: when a phase's text is longer than the
+  panel's bound, the panel scrolls and a line can be cut at its lower edge — legible,
+  but without a cue that there is more below. The
   keyboard path was not driven in that pass either — it is the path the Node suites have
   covered since the beginning, and the touch layer only writes into the channels it
   already had.

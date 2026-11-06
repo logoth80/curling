@@ -9,3 +9,6 @@ __pycache__/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Screenshots from the device pass (tests/device.mjs): evidence, not source
+tests/device-shots/

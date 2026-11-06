@@ -187,8 +187,12 @@
   body.touch #vsLine { display: none; }
   body.touch .hammer { font-size: 9px; letter-spacing: .04em; }
   body.touch #legend, body.touch #hint { display: none; }
-  body.touch #prompt { top: calc(76px + env(safe-area-inset-top)); left: 10px; right: auto; bottom: auto;
-    max-width: min(320px, 60vw); max-height: 30vh; overflow: hidden auto; padding: 6px 10px; }
+  /* Measured, not estimated: the scoreboard band is 81px tall from 6px down, so it
+     ends at 87px and the explanation panel starts below it. A panel that starts
+     above the scoreboard's bottom edge sits on top of the score, which is the one
+     thing on this screen a player reads without looking for it. */
+  body.touch #prompt { top: calc(100px + env(safe-area-inset-top)); left: 10px; right: auto; bottom: auto;
+    max-width: min(320px, 52vw); max-height: 30vh; overflow: hidden auto; padding: 6px 10px; }
   body.touch #prompt .big { font-size: 13px; }
   body.touch #prompt .sub { font-size: 11px; }
   /* One sentence, two lengths. A phase explains itself twice: the line that says
@@ -199,8 +203,11 @@
      maintained beside the real one. */
   @media (max-width: 760px), (max-height: 620px) { .roomy { display: none; } }
   body.touch #callout { font-size: 26px; top: 20%; }
+  /* The shot log lives top-right and the explanation top-left, and on a 390px
+     screen the two meet in the middle unless both are bounded: 52vw + 34vw plus
+     their insets leaves 37px of air. That gap is arithmetic, not a screenshot. */
   body.touch #telemetry { right: 8px; top: calc(66px + env(safe-area-inset-top)); min-width: 0;
-    max-width: 40vw; font-size: 11px; padding: 6px 8px; }
+    max-width: 34vw; max-height: 20vh; overflow: hidden auto; font-size: 11px; padding: 6px 8px; }
   /* The weight miniature is the aiming instrument, so it keeps its size and moves
      up out of the band the thumb buttons own — 190px is that column measured, not
      guessed: 14px off the edge, a 116px action button, a 10px gap, a ~34px view
@@ -232,7 +239,7 @@
     /* Landscape on a short screen has no vertical room either, which is what the
        .roomy rule above is for: with the explanation's second half gone, the
        panel fits beside the miniature instead of across it. */
-    body.touch #prompt { top: calc(64px + env(safe-area-inset-top)); left: 8px;
+    body.touch #prompt { top: calc(96px + env(safe-area-inset-top)); left: 8px;
       max-width: min(280px, 26vw); max-height: 60vh; overflow: hidden auto; }
     body.touch #telemetry { display: none; }
   }
