@@ -2,12 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Curling — 4 End</title>
 <link rel="icon" href="./favicon.ico">
 <!--
-  Keyboard-only 1v1 curling game. Controls: Space + the four arrow keys, plus
+  Keyboard on a desktop: Space + the four arrow keys, plus
   Enter as a view-only key (a plan of the house), and R on the game-over screen.
+  On a phone or tablet the same five controls are a weight button, a drag across
+  the ice for the line, a handle row, and a view button: see the touch layer
+  lower down and the mobile section of README.md. One state machine either way.
   Rules adapted from
   https://en.wikipedia.org/wiki/Curling and https://en.wikipedia.org/wiki/Glossary_of_curling
   See GAME_PROMPT.md for the design contract and physics.js for the rule sources.
@@ -28,7 +31,13 @@
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: #05080c; color: var(--ink); overflow: hidden;
-    font: 14px/1.45 ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace; }
+    font: 14px/1.45 ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+    /* A game fills the viewport and the ice is a control surface: a finger drag on
+       it must not pan, pinch, overscroll or select anything. The one exception is a
+       text card, which opts back in where copy has to be readable. */
+    touch-action: none; overscroll-behavior: none; -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none; }
+  body.touch .card { -webkit-user-select: text; user-select: text; }
   canvas { display: block; }
 
   #hud { position: fixed; inset: 0; pointer-events: none; user-select: none; }
@@ -124,6 +133,110 @@
     #prompt { bottom: auto; top: 114px; max-width: min(300px, 26vw); }
   }
 
+  /* ---------------- the touch layer ----------------
+     A phone has no arrow keys. What it does have, in the order it is used: the
+     weight button (Space), a drag across the ice (the arrow keys, which main.js
+     handles on the canvas), the handle row (the up/down keys - the same cells the
+     HUD already paints for the handle in hand) and a view button (Enter). Nothing
+     here duplicates the game: main.js routes all of it back into the same key
+     handling and the same two functions that change a shot.
+
+     The layer is switched by body.touch, which main.js sets from
+     matchMedia('(any-pointer: coarse)') and from the first finger that touches the
+     page. The button labels come from updateTouchControls() in main.js, written
+     from the phase, so a button can only ever say something the game will do. */
+  #touchpad { display: none; position: absolute; right: max(12px, env(safe-area-inset-right));
+    bottom: calc(14px + env(safe-area-inset-bottom));
+    flex-direction: column; align-items: flex-end; gap: 10px; }
+  body.touch #touchpad { display: flex; }
+  #touchpad button { pointer-events: auto; font: inherit; color: var(--ink); background: var(--panel);
+    border: 1px solid var(--panel-edge); border-radius: 10px; backdrop-filter: blur(6px); cursor: pointer;
+    -webkit-tap-highlight-color: transparent; touch-action: none; user-select: none; padding: 0; }
+  #btnAction { width: 116px; height: 116px; border-radius: 50%; display: grid; place-content: center; gap: 3px;
+    border-width: 2px; box-shadow: 0 10px 26px rgba(0,0,0,.55), inset 0 0 26px rgba(126,231,135,.10); }
+  #btnAction .glyph { font-size: 26px; line-height: 1; color: var(--good); }
+  #btnAction .lab { font-size: 13px; letter-spacing: .12em; font-weight: 700; }
+  #btnAction.down { background: rgba(24,44,32,.9); transform: scale(.96); }
+  #btnAction.down .glyph { color: #fff; }
+  #btnAction.busy { box-shadow: 0 0 0 3px rgba(126,231,135,.35), 0 10px 26px rgba(0,0,0,.55); }
+  #btnAction.idle { opacity: .34; }
+  #btnView { display: flex; align-items: center; gap: 7px; padding: 9px 12px; border-radius: 999px;
+    font-size: 11px; letter-spacing: .12em; color: var(--dim); }
+  #btnView .glyph { font-size: 15px; color: var(--blue); }
+  #btnView b { color: var(--ink); }
+  #btnView.on { border-color: var(--blue); color: var(--ink); }
+  /* A mark for a button, in the copy that explains it. main.js prints these where
+     a desktop gets a <kbd>: the same sentence, the instrument the player has. */
+  .tkey { display: inline-block; min-width: 18px; padding: 1px 5px; margin: 0 2px; border-radius: 4px;
+    background: #14283a; border: 1px solid #2f6f9e; color: #cfe9ff; font: inherit; font-size: 12px; }
+  .touchonly { display: none; }
+  body.touch .touchonly { display: inline; }
+  body.touch .kbdonly { display: none; }
+  /* No standing legend: the title card already lists the five controls, and every
+     phase repeats the one it needs. Ink over the ice that duplicates them is just
+     a third copy of the same sentence, somewhere else to go out of date. */
+
+  /* Everything below is the same game at thumb size: the scoreboard gives up its
+     minimum width, the readouts that were for a desk go quiet, and the two
+     controls that need a target get one. */
+  body.touch #board { min-width: 0; gap: 5px; padding: 5px 6px; top: calc(6px + env(safe-area-inset-top)); left: 50%; }
+  body.touch .team { min-width: 78px; padding: 2px 4px; gap: 2px; }
+  body.touch .team .pts { font-size: 21px; }
+  body.touch .team .head { font-size: 10px; letter-spacing: .06em; }
+  body.touch #center { padding: 0 5px; gap: 2px; }
+  body.touch #vsLine { display: none; }
+  body.touch .hammer { font-size: 9px; letter-spacing: .04em; }
+  body.touch #legend, body.touch #hint { display: none; }
+  body.touch #prompt { top: calc(76px + env(safe-area-inset-top)); left: 10px; right: auto; bottom: auto;
+    max-width: min(320px, 60vw); max-height: 30vh; overflow: hidden auto; padding: 6px 10px; }
+  body.touch #prompt .big { font-size: 13px; }
+  body.touch #prompt .sub { font-size: 11px; }
+  /* One sentence, two lengths. A phase explains itself twice: the line that says
+     what to do with the control in hand, and the paragraph that explains why it
+     works. The second is worth reading when there is room for it and it is the
+     first thing that has to go when the panel starts covering the ice, so the
+     narrow layout drops that half rather than a shorter copy being written and
+     maintained beside the real one. */
+  @media (max-width: 760px), (max-height: 620px) { .roomy { display: none; } }
+  body.touch #callout { font-size: 26px; top: 20%; }
+  body.touch #telemetry { right: 8px; top: calc(66px + env(safe-area-inset-top)); min-width: 0;
+    max-width: 40vw; font-size: 11px; padding: 6px 8px; }
+  /* The weight miniature is the aiming instrument, so it keeps its size and moves
+     up out of the band the thumb buttons own — 190px is that column measured, not
+     guessed: 14px off the edge, a 116px action button, a 10px gap, a ~34px view
+     pill, and a finger's width of air above it. The handle row is a control now,
+     so it takes pointer events and gets 38px cells: the smallest thing on a phone
+     screen that a thumb hits reliably. */
+  body.touch #meters { bottom: calc(190px + env(safe-area-inset-bottom)); gap: 8px; }
+  body.touch #meterRow { flex-direction: column; align-items: center; gap: 8px; }
+  body.touch #powerBox { width: min(452px, 86vw); }
+  body.touch #spinTrack { pointer-events: auto; gap: 4px; }
+  body.touch .slev { width: 38px; height: 38px; font-size: 13px; cursor: pointer; }
+  body.touch #sweepTrack { width: min(240px, 60vw); }
+  body.touch .card { padding: 16px 18px; }
+  body.touch .card h1 { font-size: 22px; }
+  body.touch .opt { padding: 12px 10px; }
+  body.touch .opt .v { font-size: 16px; }
+
+  /* Landscape on a phone is a short screen with wide hands at both ends: the
+     controls split to the sides and the sheet miniature narrows to keep room. */
+  @media (orientation: landscape) and (max-height: 560px) {
+    body.touch #touchpad { bottom: auto; top: 50%; transform: translateY(-50%); }
+    body.touch #btnAction { width: 96px; height: 96px; }
+    body.touch #btnAction .glyph { font-size: 20px; }
+    body.touch #meters { bottom: calc(8px + env(safe-area-inset-bottom)); gap: 6px; }
+    body.touch #meterRow { flex-direction: row; align-items: flex-end; gap: 10px; }
+    body.touch #powerBox { width: min(420px, 46vw); }
+    body.touch #spinBox .lbl, body.touch #powerBox .lbl { font-size: 9px; }
+    body.touch .slev { width: 26px; height: 26px; font-size: 11px; }
+    /* Landscape on a short screen has no vertical room either, which is what the
+       .roomy rule above is for: with the explanation's second half gone, the
+       panel fits beside the miniature instead of across it. */
+    body.touch #prompt { top: calc(64px + env(safe-area-inset-top)); left: 8px;
+      max-width: min(280px, 26vw); max-height: 60vh; overflow: hidden auto; }
+    body.touch #telemetry { display: none; }
+  }
+
   /* ---------------- callouts / telemetry ---------------- */
   #callout {
     position: absolute; left: 50%; top: 24%; transform: translate(-50%,0);
@@ -215,7 +328,7 @@
 
   <div id="meters">
     <div class="meter" id="powerBox">
-      <div class="lbl">WEIGHT — <kbd>SPACE</kbd> STARTS THE MARKER, <kbd>SPACE</kbd> AGAIN LETS GO</div>
+      <div class="lbl">WEIGHT — <span class="kbdonly"><kbd>SPACE</kbd> STARTS THE MARKER, <kbd>SPACE</kbd> AGAIN LETS GO</span><span class="touchonly"><span class="tkey">&#9673;</span> HOLD TO RUN THE MARKER, LET GO AT THE WEIGHT YOU WANT</span></div>
       <!-- To-scale miniature of the end of the sheet (SHEET constants in physics.js
            generate the geometry): far hog line, house, back line, and the predicted
            path the stone would take at the current weight. The drawn span is exactly
@@ -233,7 +346,7 @@
     </div>
     <div id="meterRow">
       <div class="meter" id="spinBox">
-        <div class="lbl">SPIN — ↑ CLOCKWISE / ↓ COUNTER</div>
+        <div class="lbl"><span class="kbdonly">SPIN — ↑ CLOCKWISE / ↓ COUNTER</span><span class="touchonly">HANDLE &middot; TAP A LEVEL, + IS CLOCKWISE</span></div>
         <div id="spinTrack">
           <div id="spinIcon"></div>
           <div class="slev" data-s="-3">-3</div><div class="slev" data-s="-2">-2</div>
@@ -244,12 +357,27 @@
         </div>
       </div>
       <div class="meter" id="sweepBox">
-        <div class="lbl">BRUSH — HOLD <kbd>SPACE</kbd>, ANYWHERE ALONG THE PATH</div>
+        <div class="lbl"><span class="kbdonly">BRUSH — HOLD <kbd>SPACE</kbd>, ANYWHERE ALONG THE PATH</span><span class="touchonly"><span class="tkey">&#9673;</span> HOLD IT DURING THE RUN, ANYWHERE ALONG THE PATH</span></div>
         <!-- the bar is how much of this delivery you have brushed, not a budget -->
         <div id="sweepTrack"><div id="sweepFill"></div></div>
         <div class="readrow"><span id="sweepVal">0.0 s brushed</span><span id="sweepState">idle</span></div>
       </div>
     </div>
+  </div>
+
+  <!-- ---------------- the touch layer ----------------
+       Two buttons. Everything else a finger does is on the ice itself (a drag for
+       the line) or on the handle row above (it already shows the handle in hand).
+       The labels are written by main.js from the phase, and the marks printed here
+       - a filled dot for the action button, a ring for the view button - are the
+       same marks the on-screen prompts use when they explain a control. -->
+  <div id="touchpad">
+    <button id="btnView" type="button" aria-label="change the camera view">
+      <span class="glyph" aria-hidden="true">&#9678;</span>VIEW <b id="viewWord">auto</b>
+    </button>
+    <button id="btnAction" type="button" aria-label="the action for this moment: start, throw, or brush">
+      <span class="glyph" aria-hidden="true">&#9673;</span><span class="lab" id="actionLabel">START</span>
+    </button>
   </div>
 
   <div id="prompt" class="hidden"></div>
@@ -268,13 +396,13 @@
 <div id="title" class="overlay">
   <div class="card">
     <h1>CURLING <span class="r">●</span> <span class="y">●</span> 4 END</h1>
-    <p class="lead">Keyboard only: <kbd>Space</kbd> + <kbd>← ↑ → ↓</kbd>. Line and handle together, then weight along the miniature, then decide whether to brush the ice. <kbd>Enter</kbd> at any point shows the same line from above the house.</p>
+    <p class="lead"><span class="kbdonly">Keyboard only: <kbd>Space</kbd> + <kbd>← ↑ → ↓</kbd>. Line and handle together, then weight along the miniature, then decide whether to brush the ice. <kbd>Enter</kbd> at any point shows the same line from above the house.</span><span class="touchonly">Hold <span class="tkey">&#9673;</span> and the weight marker runs along the miniature; let go at the strength you want. Drag a finger across the ice for the line, tap the handle row for the turn, and <span class="tkey">&#9678;</span> shows the same line from above the house.</span></p>
     <div class="opts" id="titleOpts">
-      <div class="opt" data-opt="mode"><span class="k">MODE <span style="opacity:.6">(← →)</span></span><span class="v" id="optMode"></span></div>
-      <div class="opt" data-opt="difficulty"><span class="k">CPU STRENGTH <span style="opacity:.6">(← →)</span></span><span class="v" id="optDifficulty"></span></div>
-      <div class="opt" data-opt="first"><span class="k">HAMMER, END 1 <span style="opacity:.6">(← →)</span></span><span class="v" id="optFirst"></span></div>
+      <div class="opt" data-opt="mode"><span class="k">MODE <span class="kbdonly" style="opacity:.6">(← →)</span><span class="touchonly" style="opacity:.6">(tap to change)</span></span><span class="v" id="optMode"></span></div>
+      <div class="opt" data-opt="difficulty"><span class="k">CPU STRENGTH <span class="kbdonly" style="opacity:.6">(← →)</span><span class="touchonly" style="opacity:.6">(tap to change)</span></span><span class="v" id="optDifficulty"></span></div>
+      <div class="opt" data-opt="first"><span class="k">HAMMER, END 1 <span class="kbdonly" style="opacity:.6">(← →)</span><span class="touchonly" style="opacity:.6">(tap to change)</span></span><span class="v" id="optFirst"></span></div>
     </div>
-    <div class="go">Press <kbd>Space</kbd> to throw the first stone.</div>
+    <div class="go"><span class="kbdonly">Press <kbd>Space</kbd></span><span class="touchonly">Tap <span class="tkey">&#9673;</span> anywhere here</span> to throw the first stone.</div>
     <div class="foot">4 ends · 8 stones each · only stones touching the 12-foot house count · scoring hands the hammer away, a blank end keeps it · the first 5 stones of an end are protected by the free guard zone. Tied after 4 ends → extra ends. The projected arc is the line you <i>call</i>, and the line you get: what a release can cost you is weight and handle, and the shot log reports what it cost.</div>
   </div>
 </div>
@@ -284,7 +412,7 @@
     <h1 id="sumTitle" style="font-size:22px">END 1</h1>
     <p class="lead" id="sumLead"></p>
     <div id="sumBody"></div>
-    <div class="sumline"><span id="sumHammer"></span><span class="note">Press <kbd>Space</kbd> for the next end.</span></div>
+    <div class="sumline"><span id="sumHammer"></span><span class="note"><span class="kbdonly">Press <kbd>Space</kbd></span><span class="touchonly">Tap <span class="tkey">&#9673;</span></span> for the next end.</span></div>
   </div>
 </div>
 
@@ -293,7 +421,7 @@
     <h1 id="goTitle">GAME</h1>
     <p class="lead" id="goLead"></p>
     <div id="goBody"></div>
-    <div class="sumline"><span class="counting" id="goWinner"></span><span class="note">Press <kbd>R</kbd> to play again.</span></div>
+    <div class="sumline"><span class="counting" id="goWinner"></span><span class="note"><span class="kbdonly">Press <kbd>R</kbd></span><span class="touchonly">Tap anywhere here</span> to play again.</span></div>
   </div>
 </div>
 

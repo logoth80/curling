@@ -71,6 +71,74 @@ delivery: start the weight, let go. (This is a deliberate departure from the bri
 one key added to the brief's list, and it is allowed here precisely because it is
 not an input to a shot.
 
+### On a phone: the same five controls, in the hand
+
+A phone is not a smaller keyboard, it is a different hand. A thumb cannot find an
+arrow key, but it can hold a button and drag across glass, and those two gestures are
+worth the same five controls — so that is what they became. The state machine did not
+change and no second set of rules was written: every touch writes into the input
+vocabulary the keyboard uses (a held-key set plus a queue of counted press edges) or
+calls the same function a key calls.
+
+| What you do | Which control it is |
+| --- | --- |
+| Hold <b>◉</b>, let go | The weight. Holding is Space held down; letting go is queued as a press *only while the marker is running*, so one gesture is the whole two-press rhythm: hold to run the marker, release at the weight you want, tap in aiming to start it. The label on the button is rewritten from the phase every frame — START, STEP UP, HOLD, LET GO, BRUSH, NEXT END, PLAY AGAIN. `tests/uitest.mjs` fails if any phase ever lacks a label, because a button that lies about what it will do is a worse failure than a missing button. |
+| Drag a finger across the ice | The line. A horizontal drag is turned into an angle by `physics.js` (`aimDragDeg`, `AIM_DRAG_SPAN`) — the same quantity ← → produce — and applied through the same clamped `adjustAim` the keys use. On a 390 px screen one degree is 29 px of finger and one key step is 6 px; a 120 px drag is 4.1°, about 2 m sideways at a house 30 m away, which is precisely why the *total* is clamped to ±6° and why the arc, not a number, is the feedback. The drag is a delta, not a tap position: where the finger lands means nothing, how far it travels means everything. |
+| Tap a handle cell | The handle. The seven cells above the miniature are the widget the HUD already paints for the handle in hand; a tap is `setSpinLevel`, which is also the only writer of the handle for the keyboard. |
+| Tap a title-card row | The setup options — a tap changes the option under the finger; a tap anywhere else on the card is the Space that starts the match. |
+| Tap <b>◎</b> | The view: above the house, along the ice from the skipper's end, back at the hack, or the automatic one. A camera only, exactly like <kbd>Enter</kbd>. |
+
+The one thing a phone has that a keyboard does not is the screen itself, so the aiming
+control went onto the ice: the drag is not a slider, it is the sheet, and the arc on
+the miniature is what answers it. The resolution is a rule in the rules layer, so it
+does not drift with the device — `aimDragDeg(120, 500)` and `aimDragDeg(384, 1600)`
+are the same angle, and `tests/selftest.mjs` measures what a phone-sized drag is worth
+in metres on the ice.
+
+The copy follows the instrument in hand: the sentence that names a key lives in
+`.kbdonly`, the one that names the button in `.touchonly`, and `(any-pointer: coarse)`
+picks which set is visible (a touchscreen laptop gets the layer the moment it is
+touched). Where a prompt names a control it uses the mark printed on that control, and
+`uitest` decodes both and compares them, because two spellings of one hint drift apart.
+The page also owns its gestures now — `touch-action: none`, no overscroll, no tap
+highlight — and sits clear of notches and home indicators with `viewport-fit=cover`
+plus the safe-area insets. Landscape on a short screen splits the two: the miniature
+keeps the middle, the button moves to the thumb at the right edge.
+
+Two more rules came out of looking at the phone rather than reasoning about it. The
+explanation panel is the biggest thing on that screen and it was covering the ice it
+describes, so each phase's explanation is now written in two halves: the line that says
+what to do with the control in hand, and the paragraph that explains why it works. The
+second half carries `.roomy`, and a media query keyed to *room* (not to input type)
+hides it in the cramped layout. That is one copy of one sentence, and the layout decides
+how much of it fits — a shorter phone version would be a second sentence to keep true.
+The standing legend that used to float over the ice, listing all five controls at once,
+is gone: the title card already lists them and every phase repeats the one it needs, so
+a third copy was only a third thing to go out of date — and it had no panel behind it,
+which is why it could not be read. Where the thumb column is, the instrument band
+cannot be: the meters sit above a column measured rather than guessed (14 px from the
+edge, a 116 px action button, a 10 px gap, a ~34 px view pill, and a finger's width of
+air), and the device pass compares the rectangle of every control against every other
+one in both orientations — button against handle cells, explanation against miniature,
+scoreboard against shot log.
+
+What is proven and what is not. The flow was driven in headless Edge at 390×844 and
+844×390 through the DevTools protocol with real `Input.dispatchTouchEvent` input, and
+measured: a 120 px drag moved the projected line's stop marker 42.9 px sideways in the
+miniature and the same drag back restored it to 0.00 px; a 30 px drag was worth exactly
+a quarter of it; the mirrored drag was its negative; tapping a handle cell lit that cell
+and bent the projected path by 14.8 px where a straight line bends 0; holding the action
+button ran the marker to 15.7 m and letting go threw the stone there; holding the same
+button during the run brushed, and the shot log afterwards reported the release. Those
+numbers came from a pass that found two layout faults — the explanation panel covering
+the play, and a legend that could not be read — and the fixes those faults produced
+(the `.roomy` half-sentence, the removed legend, the height of the instrument band) are
+arithmetic from the rectangles that pass measured, re-checked by `uitest`'s source rules
+but not yet re-screened on a phone viewport; the rectangle comparisons above are in the
+device pass waiting for that re-screen. It has not been tried with a thumb on real
+glass, and that harness renders WebGL through SwiftShader. See
+[Known limitations](#known-limitations).
+
 ### The camera stays with the play
 
 When the stones stop, nothing cuts. The tracking view has been following that stone
@@ -254,9 +322,9 @@ creeps into the renderer.
 ## Tests
 
 ```sh
-node tests/selftest.mjs    # 79 checks — physics, calibration, rules, scoring, the weight meter, the brushing model, the release bands measured on the ice
+node tests/selftest.mjs    # 85 checks — physics, calibration, rules, scoring, the weight meter, the brushing model, the release bands measured on the ice, what a phone-sized drag is worth in metres on the sheet
 node tests/matchtest.mjs   # 30 checks — full matches, CPU strength ladder, timing, the two error models kept honest about each other
-node tests/uitest.mjs      # 139 checks — DOM ids, key map, phases, cameras, the weight miniature, where a release may be rolled, the sweeper's stance and limbs (its joint solver is run, and every part the pose names is one the rig builds), whose handle angle, the tab icon, what the Windows icon decoder is given, and where it comes from, end resets, asset paths, that nothing asks the host root for a path, import boundary
+node tests/uitest.mjs      # 156 checks — DOM ids, key map, phases, cameras, the touch layer (no second state machine, no second handle widget, a label for every phase, the mark named in the copy is the mark printed on the button, an explanation that needs room is marked rather than rewritten shorter, the controls listed only where they are read), the weight miniature, where a release may be rolled, the sweeper's stance and limbs (its joint solver is run, and every part the pose names is one the rig builds), whose handle angle, the tab icon, what the Windows icon decoder is given, and where it comes from, end resets, asset paths, that nothing asks the host root for a path, import boundary
 node tests/glbtest.mjs     # 100 checks — the shipped GLBs against the game's coordinate contract, the handle's shape, and camera framing
 ```
 
@@ -880,6 +948,19 @@ second time on a CPU delivery, and never while the miniature is being fed.
   `main.js` and rendered through the camera that follows the play
   ([blender/preview_figure.py](blender/preview_figure.py)). Each of those is a firmer
   claim about those views than a screenshot of the running game would be.
+- That bullet still holds for the desktop game, with one exception, because the touch
+  layer needed a viewport rather than a source check: the phone flow has been driven in
+  headless Edge over the DevTools protocol at 390×844 and 844×390 with real touch
+  events, and the figures quoted in the [phone section](#on-a-phone-the-same-five-controls-in-the-hand)
+  were measured out of that run, with screenshots. That is a browser, but a confined
+  one rendering WebGL through SwiftShader: it proves the controls, the geometry of a
+  drag and the labels. What only a real device would tell me is still unproven here —
+  the feel of a fingertip on a drag (its resolution is measured in metres and asserted;
+  its feel is a judgement), a notch or home indicator with real safe-area values, and a
+  tablet's wider viewport, which sits between the two layouts that were run. The
+  keyboard path was not driven in that pass either — it is the path the Node suites have
+  covered since the beginning, and the touch layer only writes into the channels it
+  already had.
 - The procedural fallback textures are generated at startup (ice at 140 px/m). It is
   a heavier texture than the GLB path needs; it is only used when `assets/` is empty.
 - The CPU plays a legal, sensible shot rather than a perfect one: difficulty scales

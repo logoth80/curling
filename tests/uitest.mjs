@@ -393,6 +393,118 @@ group('2d. The sweeper works the line side-on, not face-first');
     !/assets\.sweeper|sweeper_[a-z]*\.glb/i.test(js) && /new THREE\.CapsuleGeometry/.test(rig));
 }
 
+group('2e. The touch layer is the same five controls, not a second game');
+{
+  /* A port fails by drifting: a phone build growing its own state machine, its own
+     idea of the aim, its own copy of a widget. Every check below is a way of saying
+     "the finger writes into the input vocabulary, and nothing else". */
+  const touchFns = ['bindHoldButton', 'bindTapButton', 'wireIceDrag', 'wireControls',
+    'updateTouchControls', 'setTouchMode'];
+  const touchSrc = touchFns.map(bodyOf).join('\n');
+
+  check('no touch handler assigns a phase, a shot value or the meter',
+    !/G\.phase\s*=[^=]/.test(touchSrc) && !/G\.shot\./.test(touchSrc)
+      && !/G\.meter\./.test(touchSrc) && !/launchShot\(/.test(touchSrc),
+    'phases are assigned by the state machine only; the touch layer queues input and calls the same functions');
+
+  check('the action button holds a key and queues one edge, exactly as a keydown does',
+    /if \(!keys\.has\(name\)\) pressEdge\(name\);\s*\n\s*keys\.add\(name\);/.test(bodyOf('bindHoldButton'))
+      && /if \(!keys\.delete\(name\)\) return;/.test(bodyOf('bindHoldButton')),
+    'one down = one held key + one edge; one up = release the held key');
+
+  check('the release is an input only while the weight marker is running',
+    /if \(name === 'space' && G\.phase === 'POWER'\) pressEdge\(name\);/.test(bodyOf('bindHoldButton')),
+    'press and hold to run the marker, let go to throw; anywhere else a release would double up with the press');
+
+  check('a press is a counted edge, so a press and its release between two frames both survive',
+    /const edges = new Map\(\);/.test(js)
+      && /const pressEdge = k => edges\.set\(k, \(edges\.get\(k\) \|\| 0\) \+ 1\);/.test(js)
+      && /edges\.clear\(\);/.test(bodyOf('frameLoop') || js) && !/const pressed = new Set\(\)/.test(js),
+    'a Set would collapse a same-frame pair; the queue is still wiped at the end of every frame');
+
+  check('a drag is turned into an angle by physics.js, never by a constant in the view layer',
+    /aimQueue \+= aimDragDeg\(dx, canvas\.clientWidth \|\| innerWidth\);/.test(bodyOf('wireIceDrag'))
+      && !/AIM_DRAG/.test(js) && !/[0-9.]+\s*\*\s*RULES\.AIM_MAX_DEG/.test(js),
+    'the resolution of a finger is a rule about the sheet, and it is checked against the ice in selftest group 9');
+
+  const queued = [...js.matchAll(/if \(aimQueue\) \{ adjustAim\(aimQueue\); aimQueue = 0; \}/g)];
+  check('a queued drag lands once per frame, in the two aiming phases only',
+    queued.length === 2 && /function nudgeAim\(sign\) \{ adjustAim\(sign \* RULES\.AIM_STEP_DEG\); \}/.test(js),
+    `${queued.length} application points; a 120 Hz screen cannot ask for more predictions than the meter path takes`);
+
+  check('the line has exactly one writer, whichever control changed it',
+    (js.match(/G\.shot\.aimDeg = /g) || []).length === 1
+      && /function adjustAim\(deg\) \{[\s\S]*?RULES\.AIM_MAX_DEG[\s\S]*?setPreviewFromShot\(\);/.test(js),
+    'adjustAim clamps and re-predicts; nudgeAim and a drag are both defined in terms of it');
+
+  const cells = [...html.matchAll(/data-s="(-?\d+)"/g)].map(m => m[1]);
+  check('there is one handle widget, and it is the readout the HUD already paints',
+    cells.length === RULES.SPIN_LEVELS.length && cells.map(Number).join(',') === RULES.SPIN_LEVELS.join(',')
+      && /spinLevels: \[\.\.\.document\.querySelectorAll\('\.slev'\)\]/.test(js),
+    `${cells.join(' ')} - the tappable row is the same seven cells the current handle lights up`);
+
+  const phases = new Set([...js.matchAll(/G\.phase = '([A-Z_]+)'/g)].map(m => m[1]));
+  [...js.matchAll(/\n\s*phase: '([A-Z_]+)',/g)].forEach(m => phases.add(m[1]));
+  const labelBlock = js.match(/const ACTION_LABEL = \{([\s\S]*?)\n\};/);
+  const labels = new Set([...(labelBlock ? labelBlock[1] : '').matchAll(/(?:^|\n)\s*([A-Z_]+):/g)].map(m => m[1]));
+  check('a button label exists for every phase, and none for anything that is not a phase',
+    labels.size === phases.size && [...labels].every(p => phases.has(p)),
+    `phases: ${[...phases].sort().join(' ')} | labels: ${[...labels].sort().join(' ')}`);
+
+  check('the labels are rewritten every frame, and the run-time state they read is the phase only',
+    /updateTouchControls\(\);\n\s*edges\.clear\(\);/.test(js)
+      && /if \(label !== lastActionLabel\)/.test(bodyOf('updateTouchControls'))
+      && !/G\.live|G\.stones|G\.aiPlan\.name/.test(bodyOf('updateTouchControls')),
+    'a button that lies about what it will do is a worse failure than a button that is missing');
+
+  const cap = js.match(/const CAP = \{([\s\S]*?)\n\};/);
+  const capBody = cap ? cap[1] : '';
+  const capCopy = key => { const m = new RegExp(`${key}: \\(\\) =>[^']*'([^']*)'`).exec(capBody); return m ? m[1] : ''; };
+  const tkeyGlyph = copy => (copy.match(/tkey">([^<])</) || [])[1] || '';
+  const buttonGlyph = id => {
+    const m = new RegExp(`id="${id}"[\\s\\S]{0,400}?&#(\\d+);`).exec(html);
+    return m ? String.fromCodePoint(+m[1]) : '';
+  };
+  check('the mark a prompt names is the mark printed on the button itself',
+    tkeyGlyph(capCopy('action')) !== '' && tkeyGlyph(capCopy('action')) === buttonGlyph('btnAction')
+      && tkeyGlyph(capCopy('view')) !== '' && tkeyGlyph(capCopy('view')) === buttonGlyph('btnView'),
+    'the sentence can stay short only because the dot in the copy is the dot on the button');
+
+  check('the half of an explanation that needs room is marked, not rewritten shorter',
+    /class="sub roomy">the arc is the line you/.test(js)
+      && /class="sub roomy">The line you were shown is the unbrushed one/.test(js)
+      && /@media \(max-width: 760px\), \(max-height: 620px\) \{ \.roomy \{ display: none; \} \}/.test(html),
+    'one paragraph in the source, two lengths in the layout; a phone-length copy would be a second copy to keep true');
+
+  check('the controls are listed where a player actually reads them, and nowhere else',
+    !/touchlegend/.test(html)
+      && /id="title"[\s\S]*Hold <span class="tkey">/.test(html)
+      && /LINE <b>drag the ice<\/b>/.test(js),
+    'the title card once, the phase prompt once: a standing legend over the ice is a third copy of the same sentence');
+
+  check('a title-card tap changes the option under the finger, and only otherwise starts the match',
+    /closest\('\.opt'\)/.test(bodyOf('wireControls'))
+      && /titleState\.i = at; adjustTitle\(\+1\)/.test(bodyOf('wireControls'))
+      && /pressEdge\('space'\);\s*\n\s*\}\);/.test(bodyOf('wireControls')));
+
+  check('the controls are wired exactly once, after everything they reference exists',
+    (js.match(/^wireControls\(\);$/gm) || []).length === 1
+      && js.indexOf('\nwireControls();') < js.indexOf('boot().catch('),
+    'the HUD cache, the title state and the shot functions are all declared before it runs');
+
+  check('both instruments are in the page, and only the one in hand is visible',
+    /body\.touch \.kbdonly \{ display: none; \}/.test(html) && /\.touchonly \{ display: none; \}/.test(html)
+      && /body\.touch \.touchonly \{ display: inline; \}/.test(html)
+      && (html.match(/class="kbdonly"/g) || []).length === (html.match(/class="touchonly"/g) || []).length,
+    `${(html.match(/class="kbdonly"/g) || []).length} paired sentences, one for a keyboard and one for a thumb`);
+
+  check('the page owns its gestures and its safe areas on a phone',
+    /name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/.test(html)
+      && /touch-action: none; overscroll-behavior: none/.test(html)
+      && /env\(safe-area-inset-bottom\)/.test(html) && /body\.touch #touchpad \{ display: flex; \}/.test(html),
+    'no pinch, no overscroll, and nothing hidden behind a notch or a home indicator');
+}
+
 group('3. HUD values agree with the rules module');
 {
   const spinBtns = [...html.matchAll(/class="slev" data-s="(-?\d+)"/g)].map(m => +m[1]);
@@ -420,9 +532,16 @@ group('3. HUD values agree with the rules module');
   check('the meter spans exactly the metres the miniature draws',
     RULES.POWER_MIN_TRAVEL === TRACK.dMin && RULES.POWER_MAX_TRAVEL === TRACK.dMax,
     `meter ${RULES.POWER_MIN_TRAVEL}-${RULES.POWER_MAX_TRAVEL} m, widget ${TRACK.dMin}-${TRACK.dMax} m`);
-  check('changing the handle re-predicts from the new value, never the old one',
-    /G\.shot\.spin = L\[clamp\(L\.indexOf\(G\.shot\.spin\) \+ dir, 0, L\.length - 1\)\];\s*\n\s*setPreviewFromShot\(\);/.test(js)
-      && !/nextSpin\(/.test(js));
+  // The order is the invariant, not the expression: assign the level, then rebuild
+  // the preview, in that order, in exactly one place. The touch layer added a second
+  // way to change the handle - tapping a level instead of stepping to it - and a
+  // second writer is exactly how the one-behind preview bug would come back.
+  check('the handle is assigned in one place, and the preview is rebuilt after it',
+    /function setSpinLevel\(level\) \{[\s\S]*?RULES\.SPIN_LEVELS\.includes\(level\)[\s\S]*?G\.shot\.spin = level;\s*\n\s*setPreviewFromShot\(\);/.test(js)
+      && (js.match(/G\.shot\.spin = /g) || []).length === 1
+      && /function stepSpin\(dir\) \{[\s\S]*?setSpinLevel\(L\[clamp\(/.test(js)
+      && /setSpinLevel\(parseInt\(el\.dataset\.s, 10\)\)/.test(js),
+    'stepSpin and a tapped handle cell both go through setSpinLevel, the only writer of the handle');
   check('the aim readout uses RULES.AIM_STEP_DEG/AIM_MAX_DEG', /RULES\.AIM_STEP_DEG/.test(js) && /RULES\.AIM_MAX_DEG/.test(js));
   // Item of play: the explanation is read while the weight control is being
   // aimed, so it lives in the left gutter and the control keeps the middle.
@@ -544,10 +663,10 @@ group('3b. The weight control is a to-scale miniature of the sheet');
     /camUp\.lerp\(c\.up \|\| WORLD_UP, a\)\.normalize\(\);\s*\n\s*camera\.up\.copy\(camUp\)/.test(js),
     'with no sky above the tee the frame needs an axis of the ice as its up, and it has to roll over rather than jump');
   check('a plan view is only a camera: nothing about the shot depends on it',
-    /CAM\[G\.planView \? 'plan' : camMode\]/.test(js) &&
+    /CAM\[G\.planView \? 'plan' : \(G\.camView \|\| camMode\)\]/.test(js) &&
     (js.match(/consume\('enter'\)\)\s*G\.planView = !G\.planView;/g) || []).length >= 3 &&
-    !/G\.planView/.test(js.match(/function stepShot\(\)[\s\S]*?\n}/)?.[0] || ''),
-    'Enter must be read as a view toggle in the player phases only, and never inside the shot simulation');
+    !/G\.(planView|camView)/.test(js.match(/function stepShot\(\)[\s\S]*?\n}/)?.[0] || ''),
+    'Enter and the view button are read as view choices in the player phases only, and never inside the shot simulation');
 
   // The picture must be the simulation, not a drawing of it: same call, same end.
   const guard = makeStone({ id: 'G', team: 'B', x: 0.8, z: 8 });

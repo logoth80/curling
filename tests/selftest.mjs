@@ -10,6 +10,7 @@
 import {
   SHEET, PHYS, RULES, StoneWorld, makeStone, cloneStones,
   simulateDelivery, powerForDistance, distanceForPower, launchSpeed, distanceToButton, meterTravel,
+  aimDragDeg, AIM_DRAG_SPAN,
   scoreEnd, hogViolation, inHouse, inFreeGuardZone, guardZoneViolation,
 } from '../physics.js';
 import { makeRng } from '../ai.js';
@@ -261,7 +262,7 @@ group('8. Power model helpers');
   void distanceToButton;
 }
 
-group('9. The weight meter sweeps distance at a constant rate (the control the player actually uses)');
+group('9. The two controls a player has: weight sweeps distance at a known rate, a drag is worth a known angle');
 {
   const P = RULES.POWER_METER_SECONDS, lo = RULES.POWER_MIN_TRAVEL, hi = RULES.POWER_MAX_TRAVEL;
   check('it starts at the lightest weight the widget shows, already moving',
@@ -294,6 +295,34 @@ group('9. The weight meter sweeps distance at a constant rate (the control the p
   check('the heaviest selectable weight carries through the house',
     heavy.delivered.z > SHEET.backLineZ && heavy.world.stones[0].removed,
     `${hi} m of travel -> z=${heavy.delivered.z.toFixed(2)}, out=${heavy.delivered.outReason}, power=${powerForDistance(hi).toFixed(2)}`);
+
+  // A phone has no arrow keys. The drag is the instrument that replaces them, so it
+  // needs a stated resolution checked against the ice, not a constant that felt right.
+  const perPx = aimDragDeg(1, 390);
+  check('a drag across the stated fraction of any view covers the whole aim range',
+    near(aimDragDeg(AIM_DRAG_SPAN * 390, 390), 2 * RULES.AIM_MAX_DEG, 1e-9)
+    && near(aimDragDeg(AIM_DRAG_SPAN * 1600, 1600), 2 * RULES.AIM_MAX_DEG, 1e-9)
+    && near(aimDragDeg(0, 390), 0, 1e-12),
+    `AIM_DRAG_SPAN=${AIM_DRAG_SPAN} of the view width = plus/minus ${RULES.AIM_MAX_DEG} degrees on any screen`);
+  check('the angle is proportional to the drag and independent of screen size',
+    near(aimDragDeg(120, 500) / aimDragDeg(30, 500), 4, 1e-12)
+    && near(aimDragDeg(120, 500), aimDragDeg(384, 1600), 1e-12),
+    `120 px on 500 = 384 px on 1600 = ${aimDragDeg(120, 500).toFixed(3)} deg`);
+  const dragDeg = 30 * perPx;
+  const dragM = Math.tan(dragDeg * Math.PI / 180) * 30;
+  check('a 30 px thumb drag moves the stone about half a metre at the house, not a house',
+    dragM >= 0.35 && dragM <= 0.75,
+    `30 px on 390 = ${dragDeg.toFixed(2)} deg = ${dragM.toFixed(2)} m lateral at 30 m`);
+  check('one arrow-key step costs a few pixels, so the drag is finer than the keys it replaces',
+    RULES.AIM_STEP_DEG / perPx <= 10,
+    `${(RULES.AIM_STEP_DEG / perPx).toFixed(1)} px = ${RULES.AIM_STEP_DEG} deg on a 390 px phone`);
+  const right = simulateDelivery([], { team: 'A', power: 0.7, aimDeg: dragDeg }, { id: 'R' });
+  check('a positive drag is a positive angle, which the sim turns toward -X (screen-right)',
+    aimDragDeg(30, 390) > 0 && right.delivered.x < 0,
+    `+${dragDeg.toFixed(2)} deg at 0.70 power -> x=${right.delivered.x.toFixed(2)} m`);
+  check('it returns a delta, not a position: nothing in the rules module clamps it',
+    near(aimDragDeg(10 * 390, 390), 10 * 390 * perPx, 1e-9),
+    `a 10-screen drag asks for ${aimDragDeg(10 * 390, 390).toFixed(1)} deg; main.js clamps the total`);
 }
 
 // ---------------------------------------------------------------------------

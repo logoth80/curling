@@ -369,6 +369,42 @@ export function meterTravel(t) {
 }
 
 /**
+ * The second control surface, for a device with no arrow keys: how much of the aim
+ * range a horizontal drag across the ice is worth.
+ *
+ * Not an absolute "point at that stone". The far end of the sheet is a few tens of
+ * pixels wide on a phone, so picking a spot there would place the line in jumps of
+ * half a house. A *drag* is the same nudge the arrow keys make, only continuous,
+ * with the preview arc as the feedback — and it is the gesture the brief asks for,
+ * sweeping a finger along the ice the way a skip points at a line.
+ *
+ * `AIM_DRAG_SPAN` is the fraction of the view width that covers the whole
+ * ±AIM_MAX_DEG range, so the gesture is worth the same angle whatever the screen.
+ * The number is set against the ice, not against a feeling: 90% of the width buys
+ * ±6°, and at 30 m one degree is 0.52 m of lateral travel — on a 390 px phone that
+ * makes a 30 px drag worth ~1°, about a stone and a half at the house, which is
+ * fine placement when the arc moves with your finger, and one arrow-key step (0.2°)
+ * costs 6 px. The extremes of the range are deliberately a long drag: nobody aims
+ * 6° away, and asking for the whole range to fit in a thumb flick would make the
+ * usable part of it too twitchy to place anything.
+ *
+ * Only the horizontal component counts, because a finger rarely travels in a
+ * straight line. Positive drag = positive angle, and that sign is not arbitrary:
+ * the delivery camera looks along +Z, so its screen-right is -X, and a positive
+ * aim turns the stone toward -X; the plan view is framed to keep -X on the right
+ * for the same reason. This function knows nothing about either camera.
+ *
+ * It is a delta, not a position, and the caller clamps the *total* through the one
+ * path the arrow keys use — which is what lets a drag run off the edge of the
+ * screen without the number and the gesture disagreeing afterwards.
+ */
+export const AIM_DRAG_SPAN = 0.9;
+export function aimDragDeg(dxPx, viewWidthPx) {
+  const w = Math.max(1, viewWidthPx || 1);
+  return (dxPx / w) * (2 * RULES.AIM_MAX_DEG / AIM_DRAG_SPAN);
+}
+
+/**
  * Forward-simulate a delivery over a snapshot of stones.
  * @returns {{world, path, delivered, travelTime, stoppedAt}}
  */

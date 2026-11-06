@@ -1,14 +1,20 @@
 /* ==========================================================================
- * main.js — 1v1 curling, keyboard only (Space + arrows; R on the game-over
- * screen). Rendering, camera, HUD and the control state machine live here;
- * rules, physics and the CPU live in physics.js / ai.js so they can be tested
- * outside the browser.
+ * main.js — 1v1 curling. Keyboard on a desktop (Space + arrows; R on the
+ * game-over screen), touch on a phone or tablet (a big action button, a drag
+ * across the ice for the line, a handle row, a view button). Rendering, camera,
+ * HUD and the control state machine live here; rules, physics and the CPU live
+ * in physics.js / ai.js so they can be tested outside the browser.
+ *
+ * Both control surfaces write into the same channels — a held key and a queued
+ * edge — and both call the same two functions that change the shot. There is no
+ * second state machine for the finger, which is why the two cannot drift apart.
  *
  * Coordinate contract (shared with physics.js):
  *   X lateral (centre line X = 0), +Z down-ice toward the house, Y up.
  *   Hack at Z = -15, tee/button at Z = +15, hog lines, back line Z = 18.4.
  *   aim > 0 and spin > 0 both bias the stone toward -X (the thrower's right),
- *   so from behind the hack the arrow keys read exactly as you would expect.
+ *   so the arrow keys read exactly as expected, and a drag to the right means
+ *   the same thing from behind the hack and from above the house.
  *
  * Assets are GLBs authored in Blender (see README.md). Every asset has a
  * procedural stand-in, so an empty assets/ folder still plays identically.
@@ -19,7 +25,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import {
   SHEET, RULES, PHYS, CAL,
   StoneWorld, makeStone, cloneStones, launchSpeed, simulateDelivery,
-  powerForDistance, meterTravel,
+  powerForDistance, meterTravel, aimDragDeg,
   describeShot, scoreEnd, distanceToButton, inHouse,
   createMatch, startEnd, currentThrower, adjudicateDelivery, finishEnd,
 } from './physics.js';
@@ -715,7 +721,22 @@ function updateSpray(dt) {
 }
 
 /* ---------------------------------------------------------------- input */
+// One vocabulary for both control surfaces. `keys` is what is being held down;
+// `edges` counts presses the state machine has not read yet. Everything past this
+// point asks for only those two things, which is what makes a finger and a key the
+// same control — there is no second state machine for the touch layer to drift away
+// from. A *count* rather than a Set because a finger can complete a press and a
+// release between two frames, and the gesture the touch layer is built around
+// (hold to run the weight marker, let go to throw) must not lose its second half.
 const keys = new Set();
+const edges = new Map();
+const pressEdge = k => edges.set(k, (edges.get(k) || 0) + 1);
+const consume = k => {
+  const n = edges.get(k) || 0;
+  if (!n) return false;
+  edges.delete(k);
+  return true;
+};
 // Enter is the one addition to the brief's Space + four arrows, and it is a view
 // control only: it asks to see the plan of the house. It never commits a shot.
 const KEYMAP = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down', ' ': 'space', Space: 'space', Enter: 'enter' };
@@ -725,15 +746,13 @@ addEventListener('keydown', e => {
   if (!k) return;
   e.preventDefault();
   if ((k === 'space' || k === 'r' || k === 'enter') && e.repeat) return;
-  if (!keys.has(k)) { pressed.add(k); }
+  if (!keys.has(k)) pressEdge(k);
   keys.add(k);
 }, { passive: false });
 addEventListener('keyup', e => {
   const k = KEYMAP[e.key]; if (!k) return; e.preventDefault(); keys.delete(k);
 }, { passive: false });
-addEventListener('blur', () => keys.clear());
-const pressed = new Set();          // edge-triggered, consumed by the state machine
-const consume = k => { if (pressed.has(k)) { pressed.delete(k); return true; } return false; };
+addEventListener('blur', () => { keys.clear(); edges.clear(); });
 /** Aim/step keys repeat while held, at a controlled rate. */
 const repeatTimers = {};
 function heldRepeat(key, cb, firstDelay = 0.28, rate = 0.055) {
@@ -746,6 +765,143 @@ function heldRepeat(key, cb, firstDelay = 0.28, rate = 0.055) {
   return false;
 }
 
+/* ------------------------------------------------------------- touch input
+   A phone has no arrow keys, so this is the other half of the *same* controls: a
+   drag across the ice is the aim nudge, the big button is Space (hold it and the
+   weight marker runs, let go and the stone goes at the weight under the marker,
+   hold it during flight and you are brushing), the handle row is the up and down
+   keys, and the view button is Enter. It never assigns a phase and never writes a
+   shot directly: it queues edges, holds keys, and calls the two functions the
+   keyboard calls. tests/uitest.mjs holds it to exactly that.
+
+   The wiring lives in wireControls() and is called once, at the bottom of this
+   file, because it touches the HUD cache and the title state declared below.
+*/
+let drag = null, aimQueue = 0;
+// any-pointer, not pointer: a laptop with a touchscreen is a keyboard machine that
+// will also, at some point, be touched, and it should get the layer when it is.
+let touchMode = false;
+try { touchMode = matchMedia('(any-pointer: coarse)').matches; } catch (e) { touchMode = false; }
+document.body.classList.toggle('touch', touchMode);
+function setTouchMode(on) {
+  if (on === touchMode) return;
+  touchMode = on;
+  document.body.classList.toggle('touch', on);
+  // A control that is no longer on the screen is not holding anything down, and the
+  // prompts describe the instrument the player actually has.
+  if (!on) { keys.delete('space'); drag = null; aimQueue = 0; }
+  promptHtml = '';
+}
+const TOUCH_MEDIA = (() => { try { return matchMedia('(any-pointer: coarse)'); } catch (e) { return null; } })();
+if (TOUCH_MEDIA) TOUCH_MEDIA.addEventListener('change', e => setTouchMode(e.matches));
+
+/**
+ * A control that is held rather than pressed: down queues one edge and holds the
+ * key, up releases it. The release is itself an input only while the weight marker
+ * is running — that is the "press and hold, let go at the strength you want"
+ * gesture — because anywhere else it would double up with the press.
+ */
+function bindHoldButton(el, name) {
+  el.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'touch') setTouchMode(true);
+    el.setPointerCapture?.(e.pointerId);
+    el.classList.add('down');
+    if (!keys.has(name)) pressEdge(name);
+    keys.add(name);
+  });
+  const up = () => {
+    if (!keys.delete(name)) return;
+    el.classList.remove('down');
+    if (name === 'space' && G.phase === 'POWER') pressEdge(name);
+  };
+  el.addEventListener('pointerup', up);
+  el.addEventListener('pointercancel', up);
+  el.addEventListener('contextmenu', e => e.preventDefault());
+}
+
+/** A control that is tapped: the button carries its own label, so nothing is held. */
+function bindTapButton(el, fn) {
+  el.addEventListener('pointerdown', () => { el.classList.add('down'); });
+  el.addEventListener('pointerup', e => {
+    if (e.pointerType === 'touch') setTouchMode(true);
+    el.classList.remove('down');
+    fn();
+  });
+  el.addEventListener('pointercancel', () => el.classList.remove('down'));
+  el.addEventListener('contextmenu', e => e.preventDefault());
+}
+
+/* The cycle the view button walks: null is "the director decides", which is what the
+   game does on its own and where the cycle comes back around; the three named
+   entries are cameras that already exist in CAM. Looking somewhere is not part of a
+   shot, so a view choice is cleared with the phase exactly as the plan view always
+   has been. */
+const CAM_CYCLE = [null, 'plan', 'skip', 'hack'];
+const VIEW_WORD = { plan: 'the house', skip: 'the skipper', hack: 'the hack' };
+
+/* Dragging a finger across the ice is the aim: a stream of small deltas, applied
+   once per frame through the one clamped path, with the preview arc as the
+   feedback. Queued rather than applied per event so a 120 Hz screen cannot ask for
+   a full delivery simulation more often than the meter path already does. Only the
+   horizontal component counts; the reason the sign works from either camera is in
+   the comment on aimDragDeg in physics.js. */
+function wireIceDrag() {
+  canvas.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'touch') setTouchMode(true);
+    if (G.phase !== 'AIM' && G.phase !== 'POWER') return;
+    drag = { id: e.pointerId, x: e.clientX };
+    aimQueue = 0;
+    canvas.setPointerCapture?.(e.pointerId);
+  });
+  canvas.addEventListener('pointermove', e => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const dx = e.clientX - drag.x;
+    if (!dx) return;
+    drag.x = e.clientX;
+    aimQueue += aimDragDeg(dx, canvas.clientWidth || innerWidth);
+  });
+  const endDrag = e => { if (drag && e.pointerId === drag.id) drag = null; };
+  canvas.addEventListener('pointerup', endDrag);
+  canvas.addEventListener('pointercancel', endDrag);
+}
+
+/** Once, after the HUD cache and the title state exist. */
+function wireControls() {
+  wireIceDrag();
+  bindHoldButton($('btnAction'), 'space');
+  bindTapButton($('btnView'), () => {
+    const at = CAM_CYCLE.indexOf(G.camView || null);
+    const next = CAM_CYCLE[(at + 1) % CAM_CYCLE.length];
+    G.camView = next;
+    G.planView = next === 'plan';
+  });
+  // The handle cells are the ones the HUD already paints for whoever is holding a
+  // handle. They set an absolute level rather than stepping, because a finger on a
+  // target it can already see should not have to count taps to reach it — and
+  // because it goes through the same single assignment the up/down keys use.
+  document.querySelectorAll('[data-s]').forEach(el => {
+    el.addEventListener('pointerup', e => {
+      e.preventDefault();
+      if (e.pointerType === 'touch') setTouchMode(true);
+      setSpinLevel(parseInt(el.dataset.s, 10));
+    });
+  });
+  // The three cards that cover the ice are overlays, so they receive the pointer.
+  // A tap is the key the keyboard asks for there; a tap on an option row changes
+  // that row instead of starting the match.
+  hud.title.addEventListener('pointerup', e => {
+    const opt = e.target.closest('.opt');
+    if (opt) {
+      const at = titleState.keys.indexOf(opt.dataset.opt);
+      if (at >= 0) { titleState.i = at; adjustTitle(+1); renderTitle(); }
+      return;
+    }
+    pressEdge('space');
+  });
+  hud.summary.addEventListener('pointerup', () => pressEdge('space'));
+  hud.gameover.addEventListener('pointerup', () => pressEdge('r'));
+}
+
 /* -------------------------------------------------------------------- HUD */
 const hud = {
   board: $('board'), endNo: $('endNo'), vsLine: $('vsLine'),
@@ -753,6 +909,10 @@ const hud = {
   hammer: { A: $('hammerA'), B: $('hammerB') }, team: { A: $('teamA'), B: $('teamB') },
   callout: $('callout'), telemetry: $('telemetry'),
   prompt: $('prompt'),
+  // The touch controls. They are in the page always and shown only under
+  // .touch / (pointer: coarse); the keyboard path never goes through them.
+  action: $('btnAction'), actionLabel: $('actionLabel'),
+  view: $('btnView'), viewWord: $('viewWord'),
   powerVal: $('powerVal'), weightName: $('weightName'),
   track: {
     svg: $('sheetTrack'), static: $('trackStatic'), stones: $('trackStones'),
@@ -837,6 +997,57 @@ function updateHUD() {
   hud.sweepTrack.classList.toggle('busy', G.sweeping);
 }
 
+/* --------------------------------------------------- the on-screen controls */
+/**
+ * What a control is called, in the copy that explains it. A prompt describing an
+ * instrument the player is not holding is worse than useless: on a phone a keycap
+ * is a glyph for something they will never press. So the same sentence names the
+ * key on a desktop and the button on a phone — and the mark it prints is the mark
+ * printed on the button itself, which is the only reason the sentence can be short.
+ */
+const CAP = {
+  action: () => touchMode ? '<span class="tkey">◉</span>' : '<kbd>Space</kbd>',
+  view: () => touchMode ? '<span class="tkey">◎</span>' : '<kbd>Enter</kbd>',
+};
+
+/**
+ * The labels on the touch controls. This is the only place in the game where the
+ * phase is written out in words, and it is separate from the state machine on
+ * purpose: a button that lies about what it will do is a worse failure than a
+ * button that is missing, so it reads nothing except the phase and the one fact
+ * about whether this button has anything to do right now.
+ */
+const ACTION_LABEL = {
+  TITLE: 'START',
+  SETUP: 'STEP UP',
+  AIM: 'HOLD',
+  POWER: 'LET GO',
+  INFLIGHT: 'BRUSH',
+  SETTLE: '·',
+  WINDUP: '·',
+  END_SUMMARY: 'NEXT END',
+  GAME_OVER: 'PLAY AGAIN',
+};
+let lastActionLabel = '';
+function updateTouchControls() {
+  const idle = G.phase === 'WINDUP' || G.phase === 'SETTLE'
+    || (G.phase === 'SETUP' && !!G.aiPlan)        // the CPU is thinking; nothing to press
+    || (G.phase === 'INFLIGHT' && isCPU(currentThrower(G.match)));
+  let label = idle ? '·' : (ACTION_LABEL[G.phase] || '·');
+  if (G.phase === 'END_SUMMARY' && G.match && G.match.over) label = 'RESULT';
+  if (label !== lastActionLabel) {
+    lastActionLabel = label;
+    hud.actionLabel.textContent = label;
+  }
+  hud.action.classList.toggle('idle', idle);
+  hud.action.classList.toggle('busy', G.phase === 'INFLIGHT' && G.sweeping);
+
+  const view = G.planView ? 'plan' : (G.camView || null);
+  const word = view ? VIEW_WORD[view] : 'auto';
+  if (hud.viewWord.textContent !== word) hud.viewWord.textContent = word;
+  hud.view.classList.toggle('on', !!view);
+}
+
 /* ----------------------------------------------- camera director / framing */
 /**
  * What the tracking view is pointed at. While a stone is in flight it is that
@@ -914,8 +1125,10 @@ let camMode = 'title';
 let camUp = WORLD_UP.clone();
 function setCameraMode(mode) { camMode = mode; }
 function updateCamera(dt) {
-  // Enter overrides the director for as long as the player wants the plan.
-  const c = CAM[G.planView ? 'plan' : camMode] || CAM.hack;
+  // A plan view opened with Enter overrides the director for as long as it is open.
+  // The view button's own pick sits just under that, and both sit under nothing else:
+  // with no view asked for, the director still moves the camera by itself.
+  const c = CAM[G.planView ? 'plan' : (G.camView || camMode)] || CAM.hack;
   const a = 1 - Math.exp(-dt / c.tau);
   // Looking straight down, the frame's up has to be an axis of the ice rather than
   // the sky. The up vector is eased with everything else, so opening a plan view
@@ -1049,6 +1262,7 @@ const G = {
   meter: { value: 0, t: 0, running: false },
   sweepUsed: 0, sweeping: false, sweepArmed: false,
   planView: false,              // Enter: a plan of the house, view only — never an input to the shot
+  camView: null,                // the view button's cycle: null = the director decides
   dt: 0, now: 0, frame: 0,
   acc: 0,
   handleAngle: 0,
@@ -1104,6 +1318,7 @@ function beginSetup() {
   // they have looked at it throws that away. The prompt says "press Space to step up
   // to the hack", and the camera does that when they do, in beginAim().
   G.planView = false;
+  G.camView = null;
   G.shot = { aimDeg: 0, spin: 0, power: CAL.drawPower };
   G.release = null;          // the last delivery's roll belongs to that delivery
   G.sweepUsed = 0; G.sweeping = false;
@@ -1120,9 +1335,9 @@ function beginSetup() {
       <div class="sub">shot: ${G.aiPlan.name}</div>`);
     G.setupTimer = 1.05;
   } else {
-    setPrompt(`<div class="big">${TEAM_NAME[t]} — press <kbd>Space</kbd> to step up to the hack</div>
+    setPrompt(`<div class="big">${TEAM_NAME[t]} — press ${CAP.action()} to step up to the hack</div>
       <div class="sub">stone ${Math.floor(m.throwIndex / 2) + 1} of ${RULES.STONES_PER_PLAYER_PER_END}${m.hammer === t ? ' · you have the <b>hammer</b>, you throw last' : ''}</div>
-      <div class="sub">the view stays on the play so you can read the ice — <kbd>Enter</kbd> takes you over the house.</div>`);
+      <div class="sub">the view stays on the play so you can read the ice — ${CAP.view()} takes you over the house.</div>`);
     G.setupTimer = null;
   }
 }
@@ -1133,6 +1348,8 @@ function beginAim() {
   // Stepping up to the hack is the move the SETUP prompt promised, so it happens here
   // and not a moment earlier. Any plan view the player had opened is closed with it.
   G.planView = false;
+  G.camView = null;
+  aimQueue = 0;
   setCameraMode('hack');
   setPreviewFromShot();
 }
@@ -1150,21 +1367,29 @@ function shotPrompt() {
   // Enter is a view, so it gets its own line only when it is on: otherwise the
   // prompt would describe a control the player is not using right now.
   const planCue = G.planView
-    ? `<div class="sub"><b>plan view</b> — <kbd>Enter</kbd> goes back to the ice</div>`
-    : `<div class="sub"><kbd>Enter</kbd> shows the same line from above the house.</div>`;
+    ? `<div class="sub"><b>plan view</b> — ${CAP.view()} goes back to the ice</div>`
+    : `<div class="sub">${CAP.view()} shows the same line from above the house.</div>`;
   if (G.phase === 'AIM') {
     // One phase reads line *and* handle, which is how a skip actually works: the
     // two are chosen together and the arc in the preview is the feedback for both.
+    // The sentence names the instrument the player has: arrow keys and a keycap on a
+    // desktop, a drag across the ice and the button on a phone.
+    const controls = touchMode
+      ? `<div class="big">LINE <b>drag the ice</b> &nbsp;HANDLE <b>tap the row</b> &nbsp;WEIGHT <b>hold</b> ${CAP.action()}</div>`
+      : `<div class="big">LINE <kbd>←</kbd><kbd>→</kbd> &nbsp;HANDLE <kbd>↑</kbd><kbd>↓</kbd> &nbsp;${CAP.action()} WEIGHT</div>`;
+    const lineHint = touchMode
+      ? `line &plusmn;${RULES.AIM_MAX_DEG}&deg;: drag a finger sideways on the ice, the arc follows it`
+      : `line &plusmn;${RULES.AIM_MAX_DEG}&deg; in ${RULES.AIM_STEP_DEG}&deg; steps, hold to repeat`;
     setPrompt(`<div class="big">${who}</div>
-      <div class="big">LINE <kbd>←</kbd><kbd>→</kbd> &nbsp;HANDLE <kbd>↑</kbd><kbd>↓</kbd> &nbsp;<kbd>Space</kbd> WEIGHT</div>
-      <div class="sub">line &plusmn;${RULES.AIM_MAX_DEG}&deg; in ${RULES.AIM_STEP_DEG}&deg; steps, hold to repeat.<br>
+      ${controls}
+      <div class="sub">${lineHint}.<br>
         ${spinWord}. &plusmn;${maxSpin} turns are available and the projected arc grows with them.</div>
-      <div class="sub">the arc is the line you <i>call</i>. How close the stone comes to it is settled when you let go,
+      <div class="sub roomy">the arc is the line you <i>call</i>. How close the stone comes to it is settled when you let go,
         and the shot log says by how much.</div>
       ${planCue}
       ${guardCue}`);
   } else if (G.phase === 'POWER') {
-    setPrompt(`<div class="big">WEIGHT — <kbd>Space</kbd> lets go</div>
+    setPrompt(`<div class="big">WEIGHT — ${touchMode ? 'let go of ' + CAP.action() : CAP.action() + ' lets go'}</div>
       <div class="sub">the marker runs along the miniature at a steady speed: where it is, is where the stone stops.
         the green band is a button draw.</div>
       <div class="sub">line and handle can still be changed while the meter runs.</div>
@@ -1207,6 +1432,7 @@ function launchShot() {
   // being brushed by the hand that just pressed Space.
   G.sweepArmed = !keys.has('space');
   G.planView = false;         // the delivery is watched from the ice, not from above
+  G.camView = null;
   ensureStoneView(delivered);
   setCameraMode('track');
   clearPreview();
@@ -1475,6 +1701,9 @@ function frameLoop(nowWall) {
   // Space commits to the weight, which is the only second step.
   else if (G.phase === 'AIM') {
     shotPrompt();
+    // A drag queued between frames lands here, once per frame, through the same
+    // clamped path the arrow keys use.
+    if (aimQueue) { adjustAim(aimQueue); aimQueue = 0; }
     heldRepeat('left', () => nudgeAim(-1));
     heldRepeat('right', () => nudgeAim(+1));
     if (consume('up')) stepSpin(+1);
@@ -1494,6 +1723,7 @@ function frameLoop(nowWall) {
   // ---------------- POWER -----------------------------------------------
   else if (G.phase === 'POWER') {
     shotPrompt();
+    if (aimQueue) { adjustAim(aimQueue); aimQueue = 0; }
     heldRepeat('left', () => nudgeAim(-1));
     heldRepeat('right', () => nudgeAim(+1));
     if (consume('up')) stepSpin(+1);
@@ -1518,9 +1748,10 @@ function frameLoop(nowWall) {
   // ---------------- INFLIGHT --------------------------------------------
   else if (G.phase === 'INFLIGHT') {
     const extra = Math.round((PHYS.A_BASE / PHYS.A_SWEEP - 1) * 100);
-    setPrompt(`<div class="big">Brush? Hold <kbd>Space</kbd> — the whole path is yours</div>
+    setPrompt(`<div class="big">Brush? Hold ${CAP.action()} — the whole path is yours</div>
       <div class="sub">brushing carries the stone a little farther (about ${extra}% if you brush all the way)
-        and flattens its curl. The line you were shown is the unbrushed one, so brushing early changes your
+        and flattens its curl.</div>
+      <div class="sub roomy">The line you were shown is the unbrushed one, so brushing early changes your
         line as much as your distance — that is the decision, not a meter to spend.</div>`);
     G.acc += dt;
     stepShot();
@@ -1535,8 +1766,8 @@ function frameLoop(nowWall) {
   // ---------------- END SUMMARY -----------------------------------------
   else if (G.phase === 'END_SUMMARY') {
     setPrompt(G.match.over
-      ? '<div class="big">Press <kbd>Space</kbd> for the final result</div>'
-      : '<div class="big">Press <kbd>Space</kbd> for the next end</div>');
+      ? `<div class="big">Press ${CAP.action()} for the final result</div>`
+      : `<div class="big">Press ${CAP.action()} for the next end</div>`);
     // gentle pulse of the counting rings while the summary is up
     const k = 1 + Math.sin(G.now * 3) * 0.06;
     for (const r of highlightRings) r.scale.set(k, k, 1);
@@ -1584,27 +1815,43 @@ function frameLoop(nowWall) {
   updateSpray(dt);
   updateCamera(dt);
   updateHUD();
-  pressed.clear();
+  updateTouchControls();
+  edges.clear();              // an unread press does not survive into the next frame
   renderer.render(scene, camera);
   requestAnimationFrame(frameLoop);
 }
 
-function nudgeAim(sign) {
-  G.shot.aimDeg = clamp(G.shot.aimDeg + sign * RULES.AIM_STEP_DEG, -RULES.AIM_MAX_DEG, RULES.AIM_MAX_DEG);
+/**
+ * The one path that changes the line. A key repeat, a drag across the ice, and any
+ * control added later all come through here, so neither the clamp nor the
+ * re-prediction can be forgotten by one of them. RULES.AIM_STEP_DEG is the
+ * keyboard's resolution; physics.js' aimDragDeg is the finger's, and both are
+ * measured against the ice in tests/selftest.mjs group 9.
+ */
+function adjustAim(deg) {
+  G.shot.aimDeg = clamp(G.shot.aimDeg + deg, -RULES.AIM_MAX_DEG, RULES.AIM_MAX_DEG);
   setPreviewFromShot();
 }
+function nudgeAim(sign) { adjustAim(sign * RULES.AIM_STEP_DEG); }
 /**
- * Step the handle up or down through RULES.SPIN_LEVELS and re-predict.
+ * Set the handle to one of RULES.SPIN_LEVELS and re-predict.
  *
- * The order here is the whole point: the preview must be simulated from the
- * spin the player now has, not the one they had. The first version of this
- * returned the new level and let the caller assign it, which meant every
- * prediction was one keypress behind the value in the HUD.
+ * The order here is the whole point: the preview must be simulated from the spin the
+ * player now has, not the one they had. The first version of this returned the new
+ * level and let the caller assign it, which meant every prediction was one keypress
+ * behind the value in the HUD. Stepping is defined in terms of setting, so the range
+ * is enforced in exactly one place — and a finger tapping a level gets the same
+ * guard as a key held past the end of it.
  */
+function setSpinLevel(level) {
+  if (G.phase !== 'AIM' && G.phase !== 'POWER') return;
+  if (!RULES.SPIN_LEVELS.includes(level)) return;
+  G.shot.spin = level;
+  setPreviewFromShot();
+}
 function stepSpin(dir) {
   const L = RULES.SPIN_LEVELS;
-  G.shot.spin = L[clamp(L.indexOf(G.shot.spin) + dir, 0, L.length - 1)];
-  setPreviewFromShot();
+  setSpinLevel(L[clamp(L.indexOf(G.shot.spin) + dir, 0, L.length - 1)]);
 }
 function adjustTitle(d) {
   const k = titleState.keys[titleState.i], o = G.titleOpts;
@@ -1695,6 +1942,10 @@ function updateStoneRoots() {
     stoneGroup.add(fresh);
   }
 }
+
+// The on-screen controls are wired last: they reference the HUD cache, the title
+// state and the shot functions, all of which are declared above this point.
+wireControls();
 
 boot().catch(err => {
   console.error(err);
