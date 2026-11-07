@@ -213,8 +213,15 @@
      guessed: 14px off the edge, a 116px action button, a 10px gap, a ~34px view
      pill, and a finger's width of air above it. The handle row is a control now,
      so it takes pointer events and gets 38px cells: the smallest thing on a phone
-     screen that a thumb hits reliably. */
-  body.touch #meters { bottom: calc(190px + env(safe-area-inset-bottom)); gap: 8px; }
+     screen that a thumb hits reliably.
+     On a wide touch screen that column is beside the band instead of under it, and
+     there the band belongs nearer the thumbs, so it drops by --weight-drop: half the
+     weight panel's own height. That number is only knowable in the page — the panel
+     is min(452px,86vw) wide and its miniature keeps the sheet's aspect, so the height
+     differs on every viewport — so main.js measures it, and measures whether there is
+     room for it. On a phone portrait the column is under the band, the drop comes out
+     0, and the 190px above stands exactly as measured. */
+  body.touch #meters { bottom: calc(190px + env(safe-area-inset-bottom) - var(--weight-drop, 0px)); gap: 8px; }
   body.touch #meterRow { flex-direction: column; align-items: center; gap: 8px; }
   body.touch #powerBox { width: min(452px, 86vw); }
   body.touch #spinTrack { pointer-events: auto; gap: 4px; }

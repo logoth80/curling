@@ -130,9 +130,24 @@ air), and the device pass compares the rectangle of every control against every 
 one in both orientations — button against handle cells, explanation against miniature,
 scoreboard against shot log.
 
+On a screen wide enough for that column to stand *beside* the band instead of under it,
+there is nothing below the band, and 190 px of air under an aiming instrument is the
+same band floating in the middle of the screen. There the band drops toward the thumbs by
+half the weight panel's own height — which cannot be a number in the stylesheet, because
+that panel is `min(452px, 86vw)` wide and its miniature keeps the sheet's aspect ratio:
+measured, it is 180 px tall on a 390 px screen and 218 px on a 1024 px one, so half of
+the first is not half of the second. `layoutWeightPanels()` in `main.js` measures the
+band against the thumb column and the panel and writes the amount to `--weight-drop`,
+which the one rule that owns the band subtracts from that measured 190 px. It clamps
+itself, and the two clamp cases are the ones that used to need a decision: under the
+column — every phone portrait, where the pass measured a drop of 0 — and at the bottom
+edge, where a phone turned sideways is already 8 px from the edge and stays at 8 px. At
+1024×768 the same page moved the band 109 px, half of 218, and the band came to rest 81
+px off the bottom edge with nothing overlapping anything.
+
 What is proven and what is not. The pass that measured all of this is in the repository
-now — `node tests/device.mjs`, 54 checks, green — and the flow was driven in headless
-Edge at 390×844 and 844×390 through the DevTools protocol with real
+now — `node tests/device.mjs`, 63 checks, green — and the flow was driven in headless
+Edge at 390×844, 844×390 and 1024×768 through the DevTools protocol with real
 `Input.dispatchTouchEvent` input. Measured: a 120 px drag moved the projected line's stop
 marker 42.9 px sideways in the miniature and the same drag back restored it to 0.00 px; a
 30 px drag was worth exactly a quarter of it; the mirrored drag was its negative; tapping
@@ -396,7 +411,7 @@ creeps into the renderer.
 ```sh
 node tests/selftest.mjs    # 101 checks — physics, calibration, rules, scoring, the weight meter, the brushing model, the release bands measured on the ice, what a phone-sized drag is worth in metres on the sheet, and the render-quality ladder as numbers: that the rungs descend on every lever, that a 30 fps window steps down exactly one rung while a single hitch inside sixty real frames does not, that a window of forty frames is not a decision, and that no input at all can walk the ladder up
 node tests/matchtest.mjs   # 30 checks — full matches, CPU strength ladder, timing, the two error models kept honest about each other
-node tests/uitest.mjs      # 169 checks — DOM ids, key map, phases, cameras, the touch layer (no second state machine, no second handle widget, a label for every phase, the mark named in the copy is the mark printed on the button, an explanation that needs room is marked rather than rewritten shorter, the controls listed only where they are read), the render ladder (the ladder module owns no browser object, the drawing-buffer ratio has exactly one writer, the frame sampler runs ahead of the render call it measures, nothing on the cost path reads game state, and the dressing gate turns off precisely the 39 parts named in the shipped arena.glb while keeping the ten the cameras are written around — the procedural stand-in named the same way), the weight miniature, where a release may be rolled, the sweeper's stance and limbs (its joint solver is run, and every part the pose names is one the rig builds), whose handle angle, the tab icon, what the Windows icon decoder is given, and where it comes from, end resets, asset paths, that nothing asks the host root for a path, import boundary
+node tests/uitest.mjs      # 173 checks — DOM ids, key map, phases, cameras, the touch layer (no second state machine, no second handle widget, a label for every phase, the mark named in the copy is the mark printed on the button, an explanation that needs room is marked rather than rewritten shorter, the controls listed only where they are read, the aim band's drop decided by one function that measures the page rather than by a number in the stylesheet — and run on a window move, a touch-probe change and one change of the aim panels, never once a frame), the render ladder (the ladder module owns no browser object, the drawing-buffer ratio has exactly one writer, the frame sampler runs ahead of the render call it measures, nothing on the cost path reads game state, and the dressing gate turns off precisely the 39 parts named in the shipped arena.glb while keeping the ten the cameras are written around — the procedural stand-in named the same way), the weight miniature, where a release may be rolled, the sweeper's stance and limbs (its joint solver is run, and every part the pose names is one the rig builds), whose handle angle, the tab icon, what the Windows icon decoder is given, and where it comes from, end resets, asset paths, that nothing asks the host root for a path, import boundary
 node tests/glbtest.mjs     # 100 checks — the shipped GLBs against the game's coordinate contract, the handle's shape, and camera framing
 ```
 
@@ -413,7 +428,7 @@ is the signal the game switches its layer on:
 
 ```sh
 python -m http.server 8123 --bind 127.0.0.1   # from the repository root
-node tests/device.mjs                         # 54 checks; EDGE=... for another Chromium build
+node tests/device.mjs                         # 63 checks at 390x844, 844x390 and 1024x768; EDGE=... for another Chromium build
 ```
 
 Screenshots land in `tests/device-shots/`, gitignored on purpose: evidence, not source.

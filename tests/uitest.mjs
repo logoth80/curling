@@ -400,7 +400,7 @@ group('2e. The touch layer is the same five controls, not a second game');
      idea of the aim, its own copy of a widget. Every check below is a way of saying
      "the finger writes into the input vocabulary, and nothing else". */
   const touchFns = ['bindHoldButton', 'bindTapButton', 'wireIceDrag', 'wireControls',
-    'updateTouchControls', 'setTouchMode'];
+    'updateTouchControls', 'setTouchMode', 'layoutWeightPanels'];
   const touchSrc = touchFns.map(bodyOf).join('\n');
 
   check('no touch handler assigns a phase, a shot value or the meter',
@@ -504,6 +504,43 @@ group('2e. The touch layer is the same five controls, not a second game');
       && /touch-action: none; overscroll-behavior: none/.test(html)
       && /env\(safe-area-inset-bottom\)/.test(html) && /body\.touch #touchpad \{ display: flex; \}/.test(html),
     'no pinch, no overscroll, and nothing hidden behind a notch or a home indicator');
+
+  /* Where the weight and spin band sits on a touch screen. The 190px the stylesheet
+     reserves is the thumb column measured, and it stands on its own; the amount the
+     band gives up on a screen wide enough for that column to stand beside it is half
+     the weight panel, which only the running page can know (the panel is
+     min(452px,86vw) wide and its miniature keeps the sheet aspect, so its height
+     differs per viewport). The real relationship is measured in tests/device.mjs at
+     390x844 and 1024x768; what is guarded here is the shape that keeps it one
+     decision, in one place, made from the page rather than from a number. */
+  const dropBody = bodyOf('layoutWeightPanels');
+  const dropCalls = (js.match(/layoutWeightPanels\(\);/g) || []).length;
+  const resizeBlock = (js.match(/addEventListener\('resize'[\s\S]*?\}\);/) || [''])[0];
+  check('the drop is decided once, by measuring the band against the panel and the thumb column',
+    !!dropBody && /const b = band\.getBoundingClientRect\(\), p = pad\.getBoundingClientRect\(\);/.test(dropBody)
+      && /Math\.round\(power\.offsetHeight \/ 2\)/.test(dropBody)
+      && /--weight-drop/.test(dropBody) && !/\b\d{2,}px\b/.test(dropBody),
+    'a half-height written into the stylesheet would be half of the wrong panel on another viewport');
+
+  check('the stylesheet keeps the measured 190px and subtracts that one value, in exactly one rule',
+    /body\.touch #meters \{ bottom: calc\(190px \+ env\(safe-area-inset-bottom\) - var\(--weight-drop, 0px\)\)/.test(html)
+      && (html.match(/var\(--weight-drop/g) || []).length === 1,
+    'one rule owns the band, so the phone layout cannot be moved by a second writer somewhere else');
+
+  check('no drop where the column is under the band, and none past the bottom edge where there is no room',
+    /b\.right <= p\.left \+ 1 \|\| p\.right <= b\.left \+ 1/.test(dropBody)
+      && /const room = Math\.floor\(innerHeight - b\.bottom - 10\)/.test(dropBody)
+      && /Math\.min\(Math\.round\(power\.offsetHeight \/ 2\), room\)/.test(dropBody)
+      && /if \(touchMode && power\.offsetHeight === 0\) return;/.test(dropBody),
+    'a phone portrait keeps the layout that was measured for it, a sideways phone already at the edge keeps 8px, ' +
+    'and the band does not jump when the weight panel gives its place to the brushing meter');
+
+  check('it runs on a window move, on the touch probe changing, and once per change of the aim panels - never per frame',
+    dropCalls === 3 && /layoutWeightPanels\(\);/.test(resizeBlock)
+      && /layoutWeightPanels\(\);/.test(bodyOf('setTouchMode'))
+      && /if \(aiming !== metersShownFor\) \{ metersShownFor = aiming; layoutWeightPanels\(\); \}/.test(bodyOf('updateHUD'))
+      && !/layoutWeightPanels/.test(bodyOf('frameLoop')) && !/layoutWeightPanels/.test(bodyOf('updateTouchControls')),
+    `${dropCalls} call sites; a layout read inside the frame loop would cost a reflow every frame on the devices that can least afford one`);
 }
 
 /* ---------------------------------------------------------------------------

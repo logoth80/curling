@@ -112,6 +112,9 @@ addEventListener('resize', () => {
   // ratio is capped by the tier - and a window can move to a monitor with a different
   // devicePixelRatio, which is exactly when the cap matters again.
   applyQuality();
+  // The band's place in the screen is a function of the viewport too: on a wide
+  // touch screen the thumb column moves beside it, and the drop becomes possible.
+  layoutWeightPanels();
 });
 
 /* ---------------------------------------------------------------- lights */
@@ -987,6 +990,7 @@ function setTouchMode(on) {
   // prompts describe the instrument the player actually has.
   if (!on) { keys.delete('space'); drag = null; aimQueue = 0; }
   promptHtml = '';
+  layoutWeightPanels();     // the drop exists only under .touch; on a desktop the band is where it always was
 }
 if (POINTER_MEDIA) POINTER_MEDIA.addEventListener('change', e => setTouchMode(e.matches));
 
@@ -1121,6 +1125,9 @@ const hud = {
   spinIcon: $('spinIcon'), spinLevels: [...document.querySelectorAll('.slev')],
   sweepFill: $('sweepFill'), sweepVal: $('sweepVal'), sweepState: $('sweepState'), sweepTrack: $('sweepTrack'),
   powerBox: $('powerBox'), spinBox: $('spinBox'), sweepBox: $('sweepBox'),
+  // The band those panels sit in, and the thumb column they must not land on:
+  // layoutWeightPanels() measures the two against each other.
+  meters: $('meters'), touchpad: $('touchpad'),
   title: $('title'), summary: $('summary'), gameover: $('gameover'), hint: $('hint'),
 };
 // (The weight control is not a bar any more — see "weight track" below, which
@@ -1129,6 +1136,39 @@ const hud = {
 /* The weight *readout* is track.js's weightReadout(): the number that matters is
  * the endpoint of the simulated preview, with the distance the stone would run if
  * nothing stopped it as the fallback. updateHUD calls it directly. */
+
+/* How far the weight and spin band drops toward the thumbs, measured rather than
+ * written down. On a phone portrait the thumb column is *under* the band, and the
+ * 190px the CSS reserves for it is that column measured (14px off the edge, a 116px
+ * action button, a 10px gap, a ~34px view pill, a finger's width of air) — the band
+ * stays where it is. On a wide touch screen the column is beside the band and there
+ * is nothing under it, so the band drops by half the weight panel's own height: that
+ * height is not a constant, because the panel is min(452px,86vw) wide and its
+ * miniature keeps the sheet's aspect ratio, so it differs on every viewport and only
+ * the page can know it. The room clamp is the rest of the rule — never past the
+ * bottom edge, and no drop at all where there is no room (which is what the
+ * landscape layout already is: 8px from the edge). A hidden panel has no height to
+ * halve, so the last decided amount stands: the band must not jump up mid-throw when
+ * the weight panel gives its place to the brushing meter. */
+let metersDrop = -1;
+let metersShownFor = false;
+function layoutWeightPanels() {
+  const band = hud.meters, power = hud.powerBox, pad = hud.touchpad;
+  if (!band || !power || !pad) return;
+  if (touchMode && power.offsetHeight === 0) return;
+  let drop = 0;
+  if (touchMode) {
+    const b = band.getBoundingClientRect(), p = pad.getBoundingClientRect();
+    const beside = p.width > 0 && (b.right <= p.left + 1 || p.right <= b.left + 1);
+    if (beside) {
+      const room = Math.floor(innerHeight - b.bottom - 10);
+      drop = Math.max(0, Math.min(Math.round(power.offsetHeight / 2), room));
+    }
+  }
+  if (drop === metersDrop) return;            // writing the property is a layout change
+  metersDrop = drop;
+  document.documentElement.style.setProperty('--weight-drop', `${drop}px`);
+}
 
 let calloutTimer = 0;
 function callout(text, ms = 2200) {
@@ -1171,6 +1211,10 @@ function updateHUD() {
   hud.powerBox.classList.toggle('hidden', !aiming);
   hud.spinBox.classList.toggle('hidden', !aiming);
   hud.sweepBox.classList.toggle('hidden', G.phase !== 'INFLIGHT');
+  // Once per change of that visibility, never once per frame: the drop is decided by
+  // measuring the panel, and a layout read in here would cost a reflow every frame on
+  // exactly the devices that can least afford one.
+  if (aiming !== metersShownFor) { metersShownFor = aiming; layoutWeightPanels(); }
 
   if (aiming) {
     const p = G.previewPower();   // the meter while sweeping, a draw while reading line

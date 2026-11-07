@@ -230,7 +230,7 @@ const layoutCode = `(function(){
     return {tag:tag||t,x:b.x,y:b.y,w:b.width,h:b.height,r:b.right,bottom:b.bottom,
             shown:b.width>0&&b.height>0&&cs.display!=='none'&&cs.visibility!=='hidden'};}
   function hit(a,b){return a&&b&&a.shown&&b.shown&&a.x<b.r&&b.x<a.r&&a.y<b.bottom&&b.y<a.bottom;}
-  var keys=['#btnAction','#btnView','#prompt','#meterRow','#board','#telemetry','#perf'],e={};
+  var keys=['#btnAction','#btnView','#prompt','#meterRow','#board','#telemetry','#perf','#meters','#powerBox'],e={};
   keys.forEach(function(k){e[k]=R(k);});
   var cells=Array.prototype.map.call(document.querySelectorAll('.slev'),function(c){return R(c,'handle cell '+c.dataset.s);});
   var clashes=[],pairs=[['#btnAction','#btnView'],['#btnAction','#meterRow'],['#btnView','#meterRow'],
@@ -245,18 +245,32 @@ const layoutCode = `(function(){
   cells.forEach(function(c){ ['#btnAction','#btnView'].forEach(function(k){ if(hit(e[k],c)) clashes.push(k+' over '+c.tag); }); });
   var px=innerWidth/2, py=innerHeight*0.55, p=e['#prompt'];
   var roomy=document.querySelector('.roomy');
-  var perf=e['#perf'];
+  var perf=e['#perf'], band=e['#meters'], power=e['#powerBox'], btn=e['#btnAction'], view=e['#btnView'];
+  // The band and the thumb column, as the page lays them out: the offset the band is
+  // kept at, the height of the weight panel the drop is half of, and whether the
+  // column is under the band (a phone) or beside it (a wide touch screen).
+  var bandOff=band&&band.shown?innerHeight-Math.round(band.bottom):null;
+  var powerH=power&&power.shown?Math.round(power.h):null;
+  var underBand=!!(band&&btn&&band.shown&&btn.shown&&band.x<btn.r&&btn.x<band.r);
   return {clashes:clashes,
+    bandOffset:bandOff, powerH:powerH, underBand:underBand,
     promptArea:p&&p.shown?(p.w*p.h)/(innerWidth*innerHeight):0,
     bands:'board bottom '+(e['#board']&&e['#board'].shown?Math.round(e['#board'].bottom):'hidden')+
           ', panel '+(p&&p.shown?Math.round(p.y)+'..'+Math.round(p.bottom):'hidden')+
-          ', perf '+(perf&&perf.shown?Math.round(perf.x)+','+Math.round(perf.y)+'..'+Math.round(perf.r)+','+Math.round(perf.bottom):'hidden'),
+          ', perf '+(perf&&perf.shown?Math.round(perf.x)+','+Math.round(perf.y)+'..'+Math.round(perf.r)+','+Math.round(perf.bottom):'hidden')+
+          ', band bottom offset '+(bandOff===null?'hidden':bandOff)+', weight panel '+(powerH===null?'hidden':powerH)+
+          (underBand?', column under the band':', column beside the band'),
     perfShown:!!(perf&&perf.shown), perfText:perf?(document.getElementById('perf').textContent||''):'',
     perfInView:!!(perf&&perf.shown&&perf.x>=0&&perf.y>=0&&perf.r<=innerWidth&&perf.bottom<=innerHeight),
+    roomyQuery:matchMedia('(max-width: 760px), (max-height: 620px)').matches,
     overPlay:!!(p&&p.shown&&px>p.x&&px<p.r&&py>p.y&&py<p.bottom),
     roomyHidden:!roomy||getComputedStyle(roomy).display==='none',
     vp:innerWidth+'x'+innerHeight};
 })()`;
+// The band is kept 190px off the bottom edge by the CSS; how much of that it gave
+// up is what the page decided, and this is the difference.
+const BAND_BASE = 190;
+const bandDrop = f => (f.bandOffset === null ? null : BAND_BASE - f.bandOffset);
 async function checkLayout(where) {
   const f = await evalJs(layoutCode);
   ok(`no control overlaps another control, the miniature, the scoreboard or the shot log (${where})`,
@@ -264,13 +278,25 @@ async function checkLayout(where) {
   ok(`the phase explanation keeps off the ice it is talking about (${where})`,
     !f.overPlay && f.promptArea > 0.01 && f.promptArea < 0.24,
     `${where}: the panel covers ${(f.promptArea * 100).toFixed(1)}% of the screen; over the play: ${f.overPlay} [${f.bands}]`);
-  ok(`when there is no room, the half of the explanation that needs room is what goes (${where})`,
-    f.roomyHidden, `${where}: a .roomy paragraph was still displayed at ${f.vp}`);
+  // Which way this viewport falls is the stylesheet's media query itself, read back:
+  // the same sentence is tested from both sides, and a wide tablet is a viewport where
+  // the room exists and the long half is supposed to stay.
+  if (f.roomyQuery) {
+    ok(`when there is no room, the half of the explanation that needs room is what goes (${where})`,
+      f.roomyHidden, `${where}: a .roomy paragraph was still displayed at ${f.vp}`);
+  } else {
+    ok(`where the room does exist, the explanation keeps the half that needs it (${where})`,
+      !f.roomyHidden, `${where}: the .roomy paragraph was hidden at ${f.vp} where there is room for it`);
+  }
   ok(`the render-tier strip is on screen, inside the viewport, and says what the device is getting (${where})`,
     f.perfShown && f.perfInView && /\b(full|lean|poor)\b/.test(f.perfText) && /fps/.test(f.perfText),
     `${where}: "${f.perfText}" [${f.bands}]`);
+  return f;
 }
-await checkLayout('portrait, aiming');
+const aimPortrait = await checkLayout('portrait, aiming');
+ok('on a phone portrait the band keeps the 190px the thumb column was measured at, because that column is under it',
+  aimPortrait.underBand === true && bandDrop(aimPortrait) === 0,
+  `bottom offset ${aimPortrait.bandOffset}, drop ${bandDrop(aimPortrait)}, weight panel ${aimPortrait.powerH}px [${aimPortrait.bands}]`);
 
 // The same screen with a full shot log open. Forced here rather than waited for,
 // because the invariant is that two top panels may never meet, and a line longer
@@ -414,8 +440,39 @@ ok('in landscape the weight button stays fully on screen, clear of the miniature
 ok('the sheet miniature is not pushed off the screen in landscape',
   land.power && land.power.w > 200 && (land.power.x + land.power.w / 2) <= 844,
   land.power && `miniature ${Math.round(land.power.w)}px wide, centre x ${Math.round(land.power.x)}`);
-await checkLayout('landscape, aiming');
+const landLay = await checkLayout('landscape, aiming');
+ok('a phone turned sideways keeps the band where the landscape rule puts it, with no drop past the bottom edge',
+  landLay.bandOffset !== null && landLay.bandOffset <= 12,
+  `bottom offset ${landLay.bandOffset}, weight panel ${landLay.powerH}px [${landLay.bands}]`);
 await shot('07-landscape-phone');
+
+/* ------------------------------------------------- a tablet in landscape: the room
+ * A 1024x768 touch screen is wide enough that a centred 452px band cannot reach the
+ * thumb column at the right edge, so the column is beside the band instead of under
+ * it, and the band drops by half the weight panel's own height. That is the whole
+ * point of measuring it in the page: the panel is min(452px,86vw) wide and its
+ * miniature keeps the sheet's aspect, so at 1024px it is a different height than it
+ * was at 390px, and a constant in the CSS would be half of the wrong panel.
+ */
+await send('Emulation.setDeviceMetricsOverride', { width: 1024, height: 768, deviceScaleFactor: 2, mobile: true });
+await sleep(1400);
+if (!await evalJs(`!document.getElementById('powerBox').classList.contains('hidden')`)) {
+  const again = await rectOf('#btnAction');
+  if (again) await tap(again.x, again.y);
+  await waitFor(`!document.getElementById('powerBox').classList.contains('hidden')`, 8000, 'the aim phase at 1024x768');
+}
+const tabLay = await checkLayout('tablet landscape, aiming');
+const halfPanel = tabLay.powerH ? Math.round(tabLay.powerH / 2) : 0;
+ok('on a wide touch screen the thumb column stands beside the band instead of under it',
+  tabLay.underBand === false, `[${tabLay.bands}]`);
+ok('and there the weight and spin band moves down by half of the weight panel height, as asked',
+  halfPanel > 0 && Math.abs(bandDrop(tabLay) - halfPanel) <= 2 && tabLay.bandOffset >= 10,
+  `moved ${bandDrop(tabLay)}px; half of the ${tabLay.powerH}px weight panel is ${halfPanel}px; ` +
+  `band now sits ${tabLay.bandOffset}px off the bottom edge [${tabLay.bands}]`);
+ok('the drop is the page measuring, not a number in the stylesheet: the same page at 390px moved nowhere',
+  bandDrop(tabLay) > 0 && bandDrop(aimPortrait) === 0 && (tabLay.powerH || 0) > (aimPortrait.powerH || 0),
+  `390x844: drop ${bandDrop(aimPortrait)} at panel ${aimPortrait.powerH}px; 1024x768: drop ${bandDrop(tabLay)} at panel ${tabLay.powerH}px`);
+await shot('09-tablet-landscape-aiming');
 
 /* ------------------------------------------------------------------ render cost
  * What the game asks a device to draw and shade, read out of the page itself with
