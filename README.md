@@ -47,6 +47,14 @@ procedural stand-ins if the folder is empty — it must run either way, and
 Three.js comes from an import map in [index.html](index.html)
 (`three@0.169.0` from jsDelivr), so the first load needs network access.
 
+If it runs slowly on the device in your hand, the page can be told: append `?tier=lean`
+or `?tier=poor` to the URL to ask for less, and on a phone or tablet the bottom-left
+corner says which rung it is on, at what drawing-buffer ratio, at how many frames per
+second, and how many objects it is handing the driver — `window.__curlingPerf()` in the
+console gives the same numbers, exactly. What each rung stops drawing, and how the game
+steps itself down when the frames say so, is in
+[On a weak GPU](#on-a-weak-gpu-what-the-game-stops-drawing).
+
 ## Controls
 
 Only <kbd>Space</kbd> and the four arrow keys play the game. <kbd>Enter</kbd> is a
@@ -123,7 +131,7 @@ one in both orientations — button against handle cells, explanation against mi
 scoreboard against shot log.
 
 What is proven and what is not. The pass that measured all of this is in the repository
-now — `node tests/device.mjs`, 41 checks, green — and the flow was driven in headless
+now — `node tests/device.mjs`, 54 checks, green — and the flow was driven in headless
 Edge at 390×844 and 844×390 through the DevTools protocol with real
 `Input.dispatchTouchEvent` input. Measured: a 120 px drag moved the projected line's stop
 marker 42.9 px sideways in the miniature and the same drag back restored it to 0.00 px; a
@@ -139,6 +147,69 @@ of air separates them on a 390 px screen; and no control's rectangle overlaps an
 control's, the miniature's, the scoreboard's or the shot log's in either orientation. It
 has not been tried with a thumb on real glass, and that harness renders WebGL through
 SwiftShader. See [Known limitations](#known-limitations).
+
+### On a weak GPU: what the game stops drawing
+
+This game was written against a desktop. On a phone or a tablet the same code asks for a
+lot: at 1280×800 with `devicePixelRatio` 2 it fills 4.1 million fragments a frame, and it
+hands the driver 56 separate things to draw. The arena is not the triangles — the whole
+of `arena.glb` is 588 of them — it is 39 named boxes standing behind the play, and every
+pixel of them is shaded more than once because the ice is already under them.
+
+So the render cost is a ladder, and the rungs live in `perf.js` where they can be argued
+with as numbers:
+
+| rung | drawing buffer | arena dressing | sheet lamps | ice normal map |
+|---|---|---|---|---|
+| `full` | up to 2× | drawn | 2 | mapped |
+| `lean` | 1.25× | **off** | 2 | mapped |
+| `poor` | 1× | off | 1 | **off** |
+
+Nothing else moves. The physics, the cameras, the rules, the light intensities and the
+ice material's colour are the same at every rung, and the header of `perf.js` says what
+each lever is worth and why the boards, kicks, dashers and the rubber deck are never in
+it: ten meshes, and the cameras are written around them — the end summary stands at
+Z = 21.2 and looks over the far dasher. Multisampling is deliberately *not* a rung: it is
+a context flag fixed before the first frame exists, so `main.js` settles it once, from the
+same pointer probe that chooses the controls — a touchscreen is never asked for it.
+
+How a rung is chosen is the part worth reading. A device's name is not evidence, so the
+opening guess is conservative and specific — a machine reporting 4 cores or 2 GB of
+memory, or a touchscreen whose drawing buffer already exceeds 2.5 million pixels, starts at
+`lean`; an *absent* value is not evidence the other way, since Safari reports no
+`deviceMemory` at all — and then the frame intervals decide. 45 frames are sampled from
+the timestamp `requestAnimationFrame` already hands the loop; their **median**, not their
+mean, past 22 ms (a device holding vsync at 16.7 ms is never touched; one sitting at 33 ms
+is), and the game steps down exactly one rung. Never two, never up, never past the last —
+`decideTier` is written with no branch that goes up, because a phone that hit 60 fps on
+the title screen does not stay there with 16 stones on the ice, and a player should not
+watch the arena flicker back to find that out. The one 300 ms frame while a texture
+uploads is why it is a median.
+
+A tablet can be asked what it is doing. `window.__curlingPerf()` returns the rung, the
+drawing-buffer ratio and its size in pixels, the sample count the driver gave, the measured
+median frame, and the draw calls and triangles — and, kept separate from what the rung
+*asks* for, how many of the 39 dressing parts are actually visible, how many sheet lamps
+are on, and whether the ice still carries its normal map. On a phone or tablet that is
+printed in a strip in the bottom-left corner, in 10 px type: it is the one corner the
+touch layout leaves free, and it is the class of device that has a right to be told. The
+device pass measures that strip against every control on the screen; on a desktop it is
+`display: none`, which has a console.
+
+`?tier=lean`, `?tier=poor`, `?tier=full` pin a rung so two can be compared by hand on the
+same glass, and a pinned rung is not moved by the watchdog — that is what pinning it means.
+No parameter, or `?tier=auto`, lets the frames decide.
+
+The device pass measures what each rung costs on the shape of device this was asked for.
+At 1280×800 dsf 2 the top rung covers **4.10M fragments** and hands over **56 draw calls**;
+`lean` covers **1.60M** — 2.56× less to shade before anything is drawn — and hands over
+**25**, with **0 of the 39** dressing parts visible while all 39 stay known to the game:
+hidden, not deleted, so the assets and the coordinate contract are untouched. The
+mechanism also fired on its own: the phone page in that pass walked itself from `full` to
+`lean` on a measured median of 27.9 ms across 45 frames, and said so in the console with
+the number. What none of that measures is a real phone GPU — the harness rasterises on a
+CPU — so the frame rate on the device in your hand is still the one number only your
+device can give.
 
 ### The camera stays with the play
 
@@ -323,9 +394,9 @@ creeps into the renderer.
 ## Tests
 
 ```sh
-node tests/selftest.mjs    # 85 checks — physics, calibration, rules, scoring, the weight meter, the brushing model, the release bands measured on the ice, what a phone-sized drag is worth in metres on the sheet
+node tests/selftest.mjs    # 101 checks — physics, calibration, rules, scoring, the weight meter, the brushing model, the release bands measured on the ice, what a phone-sized drag is worth in metres on the sheet, and the render-quality ladder as numbers: that the rungs descend on every lever, that a 30 fps window steps down exactly one rung while a single hitch inside sixty real frames does not, that a window of forty frames is not a decision, and that no input at all can walk the ladder up
 node tests/matchtest.mjs   # 30 checks — full matches, CPU strength ladder, timing, the two error models kept honest about each other
-node tests/uitest.mjs      # 156 checks — DOM ids, key map, phases, cameras, the touch layer (no second state machine, no second handle widget, a label for every phase, the mark named in the copy is the mark printed on the button, an explanation that needs room is marked rather than rewritten shorter, the controls listed only where they are read), the weight miniature, where a release may be rolled, the sweeper's stance and limbs (its joint solver is run, and every part the pose names is one the rig builds), whose handle angle, the tab icon, what the Windows icon decoder is given, and where it comes from, end resets, asset paths, that nothing asks the host root for a path, import boundary
+node tests/uitest.mjs      # 169 checks — DOM ids, key map, phases, cameras, the touch layer (no second state machine, no second handle widget, a label for every phase, the mark named in the copy is the mark printed on the button, an explanation that needs room is marked rather than rewritten shorter, the controls listed only where they are read), the render ladder (the ladder module owns no browser object, the drawing-buffer ratio has exactly one writer, the frame sampler runs ahead of the render call it measures, nothing on the cost path reads game state, and the dressing gate turns off precisely the 39 parts named in the shipped arena.glb while keeping the ten the cameras are written around — the procedural stand-in named the same way), the weight miniature, where a release may be rolled, the sweeper's stance and limbs (its joint solver is run, and every part the pose names is one the rig builds), whose handle angle, the tab icon, what the Windows icon decoder is given, and where it comes from, end resets, asset paths, that nothing asks the host root for a path, import boundary
 node tests/glbtest.mjs     # 100 checks — the shipped GLBs against the game's coordinate contract, the handle's shape, and camera framing
 ```
 
@@ -342,7 +413,7 @@ is the signal the game switches its layer on:
 
 ```sh
 python -m http.server 8123 --bind 127.0.0.1   # from the repository root
-node tests/device.mjs                         # 41 checks; EDGE=... for another Chromium build
+node tests/device.mjs                         # 54 checks; EDGE=... for another Chromium build
 ```
 
 Screenshots land in `tests/device-shots/`, gitignored on purpose: evidence, not source.
@@ -350,6 +421,21 @@ It drives real `Input.dispatchTouchEvent`, which is the only thing in this envir
 that produces real PointerEvents in the page; synthetic key events through the protocol
 never reach the game, which is why the keyboard path is tested by the suites above and
 not by this one.
+
+Its last half is the render ladder, and it is measured rather than asserted. The script
+loads the same page again on a 1280×800 dsf 2 viewport with each rung pinned in the
+address, and reads `window.__curlingPerf()` once the game has seen all 39 named dressing
+parts — which is also the proof that the shipped `arena.glb` loaded rather than the
+procedural stand-in, since that one names 29. It compares the fragments the drawing
+buffer covers and the objects handed to the driver at each rung; checks that a pinned top
+rung survived a renderer this slow, that the middle rung leaves none of the 39 visible
+while still knowing all 39, that the bottom one *finds* the ice material and takes its
+normal map off it rather than claiming to; that a touchscreen was never asked for
+multisampling at all; and that the phone page it has been driving for two minutes — the
+one case left unforced — walked itself down the ladder and logged the median it measured.
+The strip that readout prints on a touch device is measured against every control on the
+screen in both orientations, so the thing that reports the cost cannot itself be a thing
+in the way.
 
 It calls the shell's own icon extractor, reads the bitmaps the shell built, and compares
 them against the bytes in `favicon.ico`; it exits non-zero if the shell cannot build the
@@ -984,6 +1070,20 @@ second time on a CPU delivery, and never while the miniature is being fed.
   keyboard path was not driven in that pass either — it is the path the Node suites have
   covered since the beginning, and the touch layer only writes into the channels it
   already had.
+- The render ladder is measured, but the machine measuring it is not a phone. The figures
+  in the [weak-GPU section](#on-a-weak-gpu-what-the-game-stops-drawing) — the fragments
+  each rung's drawing buffer covers, the objects it hands the driver, 39 dressing parts
+  hidden out of 39 still known — are read out of the page and hold for any renderer. The
+  frame intervals that decide *when* to step down do not transfer: that harness
+  rasterises on a CPU, so the budget (a median past 22 ms across 45 frames) is a stated
+  number rather than a calibration against real mobile silicon, and the opening guess is
+  one-way — a fast phone that the guess placed at `lean` will stay there until
+  `?tier=full` says otherwise, because nothing in the browser walks the ladder back up.
+  What the lower rungs give up is not subtle either: at `lean` the stands, crowd,
+  banners, trusses and lamps are simply not drawn, and the arena reads as boards and ice
+  in the dark. That is the trade the ladder exists to make, it is reversible by hand from
+  the address, and it is not a rough edge to polish away — the alternative is shading the
+  same 4.1 million fragments on a device that asked for less.
 - The procedural fallback textures are generated at startup (ice at 140 px/m). It is
   a heavier texture than the GLB path needs; it is only used when `assets/` is empty.
 - The CPU plays a legal, sensible shot rather than a perfect one: difficulty scales

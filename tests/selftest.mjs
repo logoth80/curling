@@ -15,6 +15,10 @@ import {
 } from '../physics.js';
 import { makeRng } from '../ai.js';
 import { RELEASE_TIERS, rollRelease, applyRelease, describeRelease } from '../release.js';
+import {
+  QUALITY_TIERS, FRAME_BUDGET_MS, SAMPLE_FRAMES,
+  medianMs, decideTier, startingTier, parseTierParam,
+} from '../perf.js';
 
 let pass = 0, fail = 0;
 const near = (a, b, tol) => Math.abs(a - b) <= tol;
@@ -545,6 +549,95 @@ group('10. The release roll: the shot called vs the stone thrown (release.js)');
   const twice2 = atRest(applyRelease({ aimDeg: 0, spin: 1, power: draw }, r1), 'd2');
   check('the world stays deterministic about it: that release replays to the centimetre',
     twice.x === twice2.x && twice.z === twice2.z, `x ${twice.x.toFixed(5)} z ${twice.z.toFixed(5)}`);
+}
+
+/* ---------------------------------------------------------------------------
+ * 11. Render quality: what a weak GPU stops paying for, and the rule that says
+ *     when. The levers are in perf.js; main.js only measures and applies them.
+ *     A threshold no test holds to is a number someone invented, so the ladder,
+ *     the budget and the one-way property are all checked here as numbers.
+ * ------------------------------------------------------------------------- */
+group('11. Render quality: the ladder is a decision, not a mood (perf.js)');
+{
+  const T = QUALITY_TIERS;
+  check('the ladder is a ladder: each rung costs no more than the one above it, on every lever at once',
+    T.every((t, i) => t.id && t.id === t.id.toLowerCase() && t.note &&
+      (i === 0 || (t.pixelRatioCap <= T[i - 1].pixelRatioCap &&
+        t.dressing <= T[i - 1].dressing &&
+        t.sheetLamps <= T[i - 1].sheetLamps &&
+        t.pebbleNormal <= T[i - 1].pebbleNormal))),
+    T.map(t => `${t.id} ${t.pixelRatioCap}x dress:${t.dressing} lamps:${t.sheetLamps} nrm:${t.pebbleNormal}`).join(' | '));
+  check('the top rung is what a desktop asks for and the bottom one is what a phone can still hold',
+    T[0].pixelRatioCap === 2 && T[T.length - 1].pixelRatioCap === 1 &&
+      T[T.length - 1].dressing === false && T[T.length - 1].pebbleNormal === false);
+
+  check('the frame budget sits between a device holding 60 Hz and one sitting at 30: vsync is left alone, a stutter is not',
+    FRAME_BUDGET_MS > 1000 / 60 + 2 && FRAME_BUDGET_MS < 1000 / 30 - 2,
+    `${FRAME_BUDGET_MS} ms; 60Hz is 16.7, 30Hz is 33.3`);
+  check('a decision needs enough frames to be a measurement, and the window is under two seconds long',
+    SAMPLE_FRAMES >= 30 && SAMPLE_FRAMES * FRAME_BUDGET_MS < 2000,
+    `${SAMPLE_FRAMES} frames x ${FRAME_BUDGET_MS} ms = ${(SAMPLE_FRAMES * FRAME_BUDGET_MS / 1000).toFixed(1)} s`);
+
+  check('the median of an odd count is the middle value, of an even count the mean of the two, and of nothing zero',
+    medianMs([30, 10, 20]) === 20 && medianMs([10, 20, 30, 40]) === 25 && medianMs([]) === 0);
+
+  const smooth = Array(SAMPLE_FRAMES).fill(1000 / 60);
+  const stutter = Array(SAMPLE_FRAMES).fill(33);
+  const tooFew = Array(20).fill(120);
+  check('a device holding vsync is never touched, whatever the ladder',
+    decideTier(smooth, 0) === 0 && decideTier(smooth, 1) === 1);
+  check('a device at 30 fps gives up exactly one rung, not the whole ladder at once',
+    decideTier(stutter, 0) === 1 && decideTier(stutter, 1) === 2);
+  check('an unfinished window is not a decision: twenty bad frames do not cost a player the arena',
+    decideTier(tooFew, 0) === 0 && decideTier(stutter.slice(0, SAMPLE_FRAMES - 1), 0) === 0);
+  check('the bottom rung stays put, because there is nothing left there to give up',
+    decideTier(stutter, T.length - 1) === T.length - 1 && decideTier(stutter, 9) === T.length - 1);
+
+  // The mean is the wrong statistic on purpose: one 300 ms frame during a texture
+  // upload must not take the arena away from anyone.
+  const hitched = Array(SAMPLE_FRAMES - 1).fill(33).concat([300]);
+  const meanWouldSurrender = medianMs([33, 33, 33, 33, 300]) > FRAME_BUDGET_MS;
+  check('one long stall inside a window of real frames does not move it, while the mean would',
+    decideTier(hitched, 0) === 1 && meanWouldSurrender,
+    `median ${medianMs(hitched)} ms, mean ${(hitched.reduce((a, b) => a + b, 0) / hitched.length).toFixed(1)} ms`);
+  // ...and the other way round: mostly smooth with a fifth of the frames slow.
+  const halfBad = Array(Math.ceil(SAMPLE_FRAMES * 0.6)).fill(15).concat(Array(Math.floor(SAMPLE_FRAMES * 0.4)).fill(90));
+  check('a device that is mostly smooth keeps what it has: the median is the middle frame, not the worst one',
+    medianMs(halfBad) < FRAME_BUDGET_MS && decideTier(halfBad, 0) === 0,
+    `median ${medianMs(halfBad)} ms over ${halfBad.length} frames`);
+
+  // The one-way property is the load-bearing one: main.js applies whatever this
+  // returns, so nothing downstream can put the arena back on.
+  let tiers = 0, saw = [0];
+  for (let i = 0; i < 400; i++) {
+    const noisy = Array.from({ length: SAMPLE_FRAMES }, () => 5 + Math.random() * 90);
+    tiers = decideTier(noisy, tiers);
+    saw.push(tiers);
+  }
+  check('over 400 random windows the tier only ever walks down, and never past the last rung',
+    saw.every((v, i) => i === 0 || v >= saw[i - 1]) && tiers <= T.length - 1,
+    `ended at ${T[tiers].id}`);
+  const samplesRef = Array(SAMPLE_FRAMES).fill(40);
+  const copy = samplesRef.slice();
+  decideTier(samplesRef, 0);
+  check('the decision does not consume or reorder the caller buffer: the next window is judged on its own frames',
+    JSON.stringify(samplesRef) === JSON.stringify(copy));
+
+  check('the opening guess reads only what the browser actually knows, and an absent value is not evidence',
+    startingTier({ cores: 4, coarsePointer: false, bufferPixels: 4e6 }) === 1 &&
+      startingTier({ memoryGB: 2, coarsePointer: false, bufferPixels: 4e6 }) === 1 &&
+      startingTier({ cores: 8, memoryGB: 8, coarsePointer: false, bufferPixels: 4e6 }) === 0 &&
+      startingTier({ cores: undefined, memoryGB: undefined, coarsePointer: true, bufferPixels: 4.1e6 }) === 1 &&
+      startingTier({ cores: undefined, memoryGB: undefined, coarsePointer: false, bufferPixels: 4.1e6 }) === 0,
+    'a 1280x800 tablet at devicePixelRatio 2 asks for 4.1M fragments');
+  check('a small screen is not by itself an accusation: fragment cost is the pixel count, and a phone has fewer of them',
+    startingTier({ cores: 8, coarsePointer: true, bufferPixels: 780 * 1688 }) === 0);
+
+  check('a player can pin the tier by hand to compare two levels on their own glass, and only a real name pins it',
+    parseTierParam('?tier=lean') === 1 && parseTierParam('?tier=POOR') === 2 &&
+      parseTierParam('') === null && parseTierParam('?tier=auto') === null &&
+      parseTierParam('?tier=nonsense') === null && parseTierParam('?q=2') === null,
+    T.map(t => t.id).join(' / '));
 }
 
 console.log(`\n${fail === 0 ? 'ALL OK' : 'FAILURES'} — ${pass} passed, ${fail} failed`);

@@ -35,6 +35,10 @@ const ok = (name, pass, detail = '') => {
 let ws, nextId = 1;
 const pending = new Map();
 const consoleErrors = [];
+// The game logs one thing on purpose: when measured frame intervals push the render
+// tier down, it says so with the number it measured. That is a claim the page makes
+// about itself, so the pass listens for it.
+const consoleNotes = [];
 function send(method, params = {}) {
   return new Promise((resolve, reject) => {
     const id = nextId++;
@@ -62,6 +66,9 @@ async function connect(wsUrl) {
     }
     if (msg.method === 'Runtime.consoleAPICalled' && msg.params.type === 'error') {
       consoleErrors.push('console.error: ' + (msg.params.args || []).map(a => a.value ?? a.description).join(' '));
+    }
+    if (msg.method === 'Runtime.consoleAPICalled' && ['info', 'log', 'warning'].includes(msg.params.type)) {
+      consoleNotes.push((msg.params.args || []).map(a => a.value ?? a.description).join(' '));
     }
   });
 }
@@ -223,20 +230,29 @@ const layoutCode = `(function(){
     return {tag:tag||t,x:b.x,y:b.y,w:b.width,h:b.height,r:b.right,bottom:b.bottom,
             shown:b.width>0&&b.height>0&&cs.display!=='none'&&cs.visibility!=='hidden'};}
   function hit(a,b){return a&&b&&a.shown&&b.shown&&a.x<b.r&&b.x<a.r&&a.y<b.bottom&&b.y<a.bottom;}
-  var keys=['#btnAction','#btnView','#prompt','#meterRow','#board','#telemetry'],e={};
+  var keys=['#btnAction','#btnView','#prompt','#meterRow','#board','#telemetry','#perf'],e={};
   keys.forEach(function(k){e[k]=R(k);});
   var cells=Array.prototype.map.call(document.querySelectorAll('.slev'),function(c){return R(c,'handle cell '+c.dataset.s);});
   var clashes=[],pairs=[['#btnAction','#btnView'],['#btnAction','#meterRow'],['#btnView','#meterRow'],
     ['#prompt','#meterRow'],['#prompt','#board'],['#prompt','#telemetry'],['#telemetry','#btnAction'],
-    ['#telemetry','#meterRow']];
+    ['#telemetry','#meterRow'],
+    // The render-tier strip is new, so it is measured against everything, not assumed
+    // to be small enough to fit. It is the only element on the page that is allowed to
+    // be an afterthought in a corner, and corners are where the controls live.
+    ['#perf','#meterRow'],['#perf','#btnAction'],['#perf','#btnView'],['#perf','#prompt'],
+    ['#perf','#telemetry'],['#perf','#board']];
   pairs.forEach(function(p){ if(hit(e[p[0]],e[p[1]])) clashes.push(p[0]+' over '+p[1]); });
   cells.forEach(function(c){ ['#btnAction','#btnView'].forEach(function(k){ if(hit(e[k],c)) clashes.push(k+' over '+c.tag); }); });
   var px=innerWidth/2, py=innerHeight*0.55, p=e['#prompt'];
   var roomy=document.querySelector('.roomy');
+  var perf=e['#perf'];
   return {clashes:clashes,
     promptArea:p&&p.shown?(p.w*p.h)/(innerWidth*innerHeight):0,
     bands:'board bottom '+(e['#board']&&e['#board'].shown?Math.round(e['#board'].bottom):'hidden')+
-          ', panel '+(p&&p.shown?Math.round(p.y)+'..'+Math.round(p.bottom):'hidden'),
+          ', panel '+(p&&p.shown?Math.round(p.y)+'..'+Math.round(p.bottom):'hidden')+
+          ', perf '+(perf&&perf.shown?Math.round(perf.x)+','+Math.round(perf.y)+'..'+Math.round(perf.r)+','+Math.round(perf.bottom):'hidden'),
+    perfShown:!!(perf&&perf.shown), perfText:perf?(document.getElementById('perf').textContent||''):'',
+    perfInView:!!(perf&&perf.shown&&perf.x>=0&&perf.y>=0&&perf.r<=innerWidth&&perf.bottom<=innerHeight),
     overPlay:!!(p&&p.shown&&px>p.x&&px<p.r&&py>p.y&&py<p.bottom),
     roomyHidden:!roomy||getComputedStyle(roomy).display==='none',
     vp:innerWidth+'x'+innerHeight};
@@ -250,6 +266,9 @@ async function checkLayout(where) {
     `${where}: the panel covers ${(f.promptArea * 100).toFixed(1)}% of the screen; over the play: ${f.overPlay} [${f.bands}]`);
   ok(`when there is no room, the half of the explanation that needs room is what goes (${where})`,
     f.roomyHidden, `${where}: a .roomy paragraph was still displayed at ${f.vp}`);
+  ok(`the render-tier strip is on screen, inside the viewport, and says what the device is getting (${where})`,
+    f.perfShown && f.perfInView && /\b(full|lean|poor)\b/.test(f.perfText) && /fps/.test(f.perfText),
+    `${where}: "${f.perfText}" [${f.bands}]`);
 }
 await checkLayout('portrait, aiming');
 
@@ -397,6 +416,89 @@ ok('the sheet miniature is not pushed off the screen in landscape',
   land.power && `miniature ${Math.round(land.power.w)}px wide, centre x ${Math.round(land.power.x)}`);
 await checkLayout('landscape, aiming');
 await shot('07-landscape-phone');
+
+/* ------------------------------------------------------------------ render cost
+ * What the game asks a device to draw and shade, read out of the page itself with
+ * window.__curlingPerf() - the same call a tablet's own console can make.
+ *
+ * The frame times here say nothing about a phone GPU: this runs on SwiftShader, a CPU
+ * rasteriser, and it is slower than any real tablet. Two things are exact anyway, and
+ * they are the two the levers move - the number of fragments the drawing buffer covers
+ * and the number of objects handed to the driver per frame - so the ladder can be
+ * measured here even though the frame rate cannot.
+ *
+ * What the frame rate *does* prove is the mechanism: this very page has been running
+ * for two minutes on a renderer that cannot keep up, and the only thing that should
+ * have happened is the ladder walking itself down, by itself.
+ */
+async function tryWait(expr, ms, label) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    try { if (await evalJs(expr)) return true; } catch (e) { /* the context is being replaced */ }
+    await sleep(200);
+  }
+  console.log('     (timeout waiting for ' + label + ')');
+  return false;
+}
+// Ready means the game has seen all 39 named dressing parts, which is also proof it
+// loaded the shipped arena.glb rather than the stand-in (that one names 29).
+const READY = `(window.__curlingPerf||function(){return{dressingParts:0};})().dressingParts === 39`;
+async function loadTier(query, label) {
+  await send('Page.navigate', { url: URL_BASE + query });
+  if (!await tryWait('window.__curlingBoot === true', 30000, label + ' boot')) return null;
+  if (!await tryWait(READY, 25000, label + ' arena')) return null;
+  await sleep(1200);
+  return evalJs('window.__curlingPerf()');
+}
+const fragsOf = p => { const m = /^(\d+)x(\d+)$/.exec((p && p.buffer) || ''); return m ? +m[1] * +m[2] : 0; };
+const tierLine = p => p && `${p.id}${p.forced ? ' (pinned)' : ''} ${p.pixelRatio}x dpr${p.devicePixelRatio} ` +
+  `buffer ${p.buffer} = ${(fragsOf(p) / 1e6).toFixed(2)}M fragments | ${p.drawCalls} calls, ` +
+  `${p.triangles} tris | dress ${p.dressingVisible}/${p.dressingParts} lamps ${p.lampsVisible} ` +
+  `iceNormal ${p.iceNormalApplied} | msaa asked ${p.msaaRequested}, got ${p.samples} | ` +
+  `${p.fps} fps @ ${p.msMedian} ms`;
+
+const watched = await evalJs('window.__curlingPerf()');
+ok('a device that cannot keep up walks the ladder down by itself: no phase change, no settings screen, no key',
+  watched && watched.id !== 'full' && watched.dressing === false && watched.dressingVisible === 0,
+  tierLine(watched));
+ok('and it says so out loud, in the console, with the number it measured',
+  consoleNotes.some(l => /render tier \w+ -> \w+/.test(l) && /median frame [\d.]+ ms over \d+ frames/.test(l)),
+  consoleNotes.filter(l => /render tier/.test(l)).slice(0, 2).join('  ||  '));
+ok('the game is holding the real arena, not the stand-in: 39 named dressing parts, of which a hidden one shows none',
+  watched && watched.dressingParts === 39,
+  watched && `${watched.dressingParts} parts known, ${watched.dressingVisible} visible at tier ${watched.id}`);
+
+// The shape the report was actually about: a 1280x800 tablet at devicePixelRatio 2.
+await send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 2, mobile: true });
+const full = await loadTier('?tier=full', 'tablet, tier full');
+const lean = await loadTier('?tier=lean', 'tablet, tier lean');
+const poor = await loadTier('?tier=poor', 'tablet, tier poor');
+const auto = await loadTier('', 'tablet, no tier in the address');
+
+ok('a pinned tier survives a renderer this slow: the watchdog does not move a level someone asked for',
+  full && full.id === 'full' && full.forced === true && full.dressingVisible === 39 &&
+    full.lampsVisible === 2 && full.iceNormalApplied === true,
+  tierLine(full));
+ok('the middle rung switches off the 39 dressing parts it names, and only those: boards, kicks, dashers and the deck stay',
+    full && lean && lean.id === 'lean' && lean.dressingVisible === 0 && lean.dressingParts === 39 &&
+    lean.lampsVisible === 2 && lean.iceNormalApplied === true &&
+    full.drawCalls - lean.drawCalls >= 30,
+  `full: ${tierLine(full)}\n     lean: ${tierLine(lean)}`);
+ok('the bottom rung takes the ice normal map off the sheet it covers and one of the two sheet lamps out of every shader',
+  poor && poor.id === 'poor' && poor.pixelRatio === 1 && poor.iceNormalApplied === false &&
+    poor.lampsVisible === 1 && poor.dressingVisible === 0 && poor.drawCalls <= lean.drawCalls,
+  tierLine(poor));
+const ratio = full && lean ? fragsOf(full) / fragsOf(lean) : 0;
+ok('what that is worth in fragments on the way this device is built: two and a half times less to shade before anything is drawn',
+  ratio >= 2.5 && full.pixelRatio === 2 && lean.pixelRatio === 1.25,
+  `${fragsOf(full) / 1e6}M -> ${fragsOf(lean) / 1e6}M fragments, ratio ${ratio.toFixed(2)}x`);
+ok('a touchscreen that already has a large drawing buffer starts below the top rung, before it has drawn a frame',
+  auto && !auto.forced && ['lean', 'poor'].includes(auto.id) && auto.pixelRatio <= 1.25,
+  tierLine(auto));
+ok('a touchscreen is not asked for multisampling at all: the sample count is decided before the ladder exists',
+  watched && auto && watched.msaaRequested === false && auto.msaaRequested === false,
+  `asked ${auto && auto.msaaRequested}, driver reported ${auto && auto.samples} samples`);
+await shot('08-tablet-tier-lean');
 
 ok('no console errors while all of this ran', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
 

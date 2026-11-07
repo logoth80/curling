@@ -22,6 +22,7 @@ import { solveAim } from '../ai.js';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const js = readFileSync(new URL('../main.js', import.meta.url), 'utf8');
+const perfSrc = readFileSync(new URL('../perf.js', import.meta.url), 'utf8');
 
 let pass = 0, fail = 0;
 const check = (name, ok, detail = '') => {
@@ -505,6 +506,121 @@ group('2e. The touch layer is the same five controls, not a second game');
     'no pinch, no overscroll, and nothing hidden behind a notch or a home indicator');
 }
 
+/* ---------------------------------------------------------------------------
+ * 2f. The render tier: a measured decision with exactly one path through the code.
+ *
+ * The cost numbers themselves belong to selftest.mjs group 11, which runs them as
+ * plain data. What is guarded here is the shape that keeps those numbers true in a
+ * two-thousand-line file:
+ *   - one module decides (perf.js), one function applies (applyQuality), one
+ *     function measures (sampleFrameRate). A second writer of the pixel ratio would
+ *     put a phone back at 2x behind the ladder and nobody would have decided to.
+ *   - the arena dressing is switched off by *name*, so the shipped GLB and the
+ *     procedural stand-in are treated alike, and the parts the cameras are written
+ *     around cannot be caught by the gate. Checked against arena.glb's own node
+ *     names, not against a remembered list.
+ *   - multisampling is settled before the WebGL context exists, from the one pointer
+ *     probe in the file - the same answer that chooses the controls.
+ *   - none of it reaches into game state. A slow phone must not play a different game.
+ * ------------------------------------------------------------------------- */
+group('2f. The render tier is measured, applied in one place, and cannot touch the match');
+{
+  const n = re => (js.match(re) || []).length;
+  const bootBody = (js.match(/\nasync function boot\(\)\s*\{[\s\S]*?\n\}/) || [''])[0];
+  const resizeBody = (js.match(/addEventListener\('resize'[\s\S]*?\}\);/) || [''])[0];
+
+  check('the ladder lives in perf.js, which owns no browser object and imports nothing',
+    /export const QUALITY_TIERS/.test(perfSrc) && !/^\s*import\s/m.test(perfSrc) &&
+      !/\b(document|window)\s*\./.test(perfSrc) && !/THREE\.[A-Za-z]/.test(perfSrc) &&
+      !/matchMedia\s*\(/.test(perfSrc) && !/navigator\s*\./.test(perfSrc),
+    'so its thresholds, its one-way property and its opening guess are asserted as numbers in selftest group 11');
+
+  check('exactly one WebGL context is built, and its multisampling is the pointer probe rather than a literal',
+    n(/new THREE\.WebGLRenderer\(/g) === 1 && /antialias: !coarsePointer\(\)/.test(js) &&
+      !/antialias: true/.test(js) && n(/matchMedia\(/g) === 1 && /const POINTER_MEDIA = /.test(js),
+    'sample count cannot change after the context exists, which is why it is not a rung on the ladder');
+
+  check('the drawing-buffer ratio has one writer, and it reads its ceiling from the tier in force',
+    n(/setPixelRatio\(/g) === 1 &&
+      /renderer\.setPixelRatio\(Math\.min\(devicePixelRatio \|\| 1, t\.pixelRatioCap\)\)/.test(bodyOf('applyQuality')) &&
+      !/Math\.min\(devicePixelRatio[^\n]*,\s*2\)/.test(js),
+    'the fragment count is the largest single cost on a tablet, so a second clamp anywhere would undo the ladder');
+
+  // Statements, not mentions: these functions are written with the reason for the call
+  // next to it, and a comment that says applyQuality() is not a call to it.
+  const calls = body => (body.match(/^\s*applyQuality\(\);/gm) || []).length;
+  check('the tier is applied before the first frame is drawn, again when the assets land, and when the window moves',
+    calls(bootBody) === 2 && calls(bodyOf('sampleFrameRate')) === 1 && calls(resizeBody) === 1 &&
+      calls(js) === 4 &&
+      bootBody.indexOf('applyQuality();') < bootBody.indexOf('requestAnimationFrame(frameLoop)'),
+    'a renderer cannot switch off geometry it has not been given yet, so the pass over the assets is a second, deliberate call');
+
+  check('the frame sampler runs first in the loop, ahead of the render call it is measuring, on the browsers own clock',
+    /sampleFrameRate\(nowWall\)/.test(bodyOf('frameLoop')) &&
+      bodyOf('frameLoop').indexOf('sampleFrameRate(nowWall)') <
+        bodyOf('frameLoop').indexOf('renderer.render(scene, camera)') &&
+      !/performance\.now\(\)/.test(bodyOf('sampleFrameRate')),
+    'requestAnimationFrame already hands the loop a timestamp; a second clock could disagree with it');
+
+  check('nothing on the cost path touches the match: no game state, no rules, no simulation',
+    ['applyQuality', 'watchArena', 'watchIce', 'perfSnapshot', 'paintPerf', 'sampleFrameRate']
+      .every(f => f && !/\bG\.[a-zA-Z]/.test(bodyOf(f)) && !/\b(RULES|PHYS|CAL|SHEET)\b/.test(bodyOf(f)) &&
+        !/simulateDelivery|physics\.js/.test(bodyOf(f))),
+    'a phone getting slower must not change what a stone does');
+
+  check('the frame buffer is written by the sampler and by nothing else',
+    /frameMs\.push\(gap\)/.test(bodyOf('sampleFrameRate')) &&
+      /if \(frameMs\.length > SAMPLE_FRAMES\) frameMs\.splice/.test(bodyOf('sampleFrameRate')) &&
+      /frameMs\.length = 0/.test(bodyOf('sampleFrameRate')) &&
+      ['applyQuality', 'watchArena', 'watchIce', 'paintPerf', 'perfSnapshot'].every(f => !/frameMs\s*[.[]/.test(bodyOf(f))),
+    'the lists those five do fill are the dressing and the materials; a window judged on frames drawn under a tier that has already changed is not a measurement');
+
+  // The gate against the shipped file: what it turns off, and what it must never reach.
+  const gateSrc = (js.match(/const ARENA_DRESSING = \/([^/]+)\//) || [])[1];
+  const gate = gateSrc ? new RegExp(gateSrc) : /(?!)/;
+  const gbuf = readFileSync(new URL('../assets/arena.glb', import.meta.url));
+  const gjson = JSON.parse(gbuf.subarray(20, 20 + gbuf.readUInt32LE(12)).toString('utf8'));
+  const names = [...new Set((gjson.nodes || []).map(x => x.name).filter(Boolean))];
+  const off = names.filter(x => gate.test(x));
+  const kept = names.filter(x => !gate.test(x));
+  check('the gate turns off exactly the arena dressing named in the shipped arena.glb, and nothing the cameras need',
+    names.length === 49 && off.length === 39 && kept.length === 10 &&
+      kept.every(x => /^(deck|board|kick|dasher)/.test(x)),
+      `off ${off.length}: stand crowd banner banner_strip truss lamp | kept ${kept.length}: ${kept.join(' ')}`);
+
+  check('it treats the procedural stand-in alike, because the device that could not load assets/ still has to be paid for',
+    /if \(name === 'arena'\) watchArena\(obj\);/.test(js) && /if \(name === 'sheet'\) watchIce\(obj\);/.test(js) &&
+      ['stand_', 'crowd_', 'banner_strip_', 'banner_', 'truss_']
+        .every(p => new RegExp(String.raw`\.name = ` + '`?' + p).test(bodyOf('buildProceduralArena'))) &&
+      !/\.name = `?(deck|board|kick|dasher)/.test(bodyOf('buildProceduralArena')),
+    'the fallback names its parts as build_assets.py names the GLBs, so one rule covers both paths');
+
+  check('the ice normal map has one owner, and taking it away leaves the material values the asset tests check alone',
+    /m\.normalMap && \/pebble\/i\.test\(m\.normalMap\.name/.test(bodyOf('watchIce')) &&
+      /s\.material\.normalMap = want;/.test(bodyOf('applyQuality')) &&
+      /s\.material\.needsUpdate = true;/.test(bodyOf('applyQuality')),
+    'the sheet is the largest object on screen: 276 KB of the 408 KB sheet.glb is that one map');
+
+  check('a pinned tier stays pinned, so two levels can be compared by hand on the same glass',
+    /const forcedTier = parseTierParam\(location\.search\)/.test(js) &&
+      n(/parseTierParam\(/g) === 1 && /quality\.forced/.test(bodyOf('sampleFrameRate')),
+    'a watchdog that moved a pinned tier would take the comparison away');
+
+  check('the readout is in the page, hidden from a desktop, and bounded on a phone so it cannot reach the handle row',
+    /id="perf"/.test(html) && /perf: \$\('perf'\)/.test(js) && /#perf \{ display: none; \}/.test(html) &&
+      /body\.touch #perf \{[\s\S]*?max-width: 30vw/.test(html) &&
+      /pointer-events: none/.test((html.match(/body\.touch #perf \{[\s\S]*?\}/) || [''])[0]),
+    'the device pass measures that strip against every control on the screen');
+
+  check('a device can be asked what it is doing, in one call, with the numbers that matter on weak glass',
+    /window\.__curlingPerf = perfSnapshot;/.test(js) &&
+      ['tier:', 'id:', 'forced:', 'pixelRatio:', 'cap:', 'devicePixelRatio:', 'buffer:', 'samples:',
+        'msaaRequested:', 'dressingParts:', 'dressingVisible:', 'lampsVisible:', 'iceMaterials:',
+        'iceNormalApplied:', 'msMedian:', 'fps:', 'drawCalls:', 'triangles:', 'dressing:', 'iceNormalMap:', 'sheetLamps:']
+        .every(k => bodyOf('perfSnapshot').includes(k)),
+    'tests/device.mjs reads this, and so can a tablets own console');
+}
+
 group('3. HUD values agree with the rules module');
 {
   const spinBtns = [...html.matchAll(/class="slev" data-s="(-?\d+)"/g)].map(m => +m[1]);
@@ -902,7 +1018,10 @@ group('5. Three.js wiring');
   check('main.js announces that its module graph loaded', /window\.__curlingBoot = true/.test(js) && /window\.__curlingBoot = false/.test(html));
   check('opening the page from disk is explained, not left blank',
     /location\.protocol === 'file:'/.test(html) && /id = 'bootfail'/.test(html) && /python -m http\.server/.test(html));
-  check('the renderer is created against the canvas in the page', /new THREE\.WebGLRenderer\(\{ canvas/.test(js));
+  // The options are on their own lines now, because one of them (multisampling) is a
+  // decision that needs a sentence next to it. The intent of this check is the same:
+  // the renderer is built against the canvas that is in the page.
+  check('the renderer is created against the canvas in the page', /new THREE\.WebGLRenderer\(\{\s*canvas,/.test(js));
   check('fixed-timestep accumulator drives the physics', /G\.acc >= PHYS\.DT/.test(js) && /world\.step\(PHYS\.DT/.test(js));
   check('the preview arc uses the same simulation as the shot', /simulateDelivery\(G\.stones,[\s\S]{0,120}path: true/.test(js));
   check('counting stones are highlighted and a measure-up is drawn', /highlightStone\(s, 0x7ee787\)/.test(js) && /measureLine\(button, b, TEAM_COLOR\[t\]\)/.test(js));

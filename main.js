@@ -32,6 +32,9 @@ import {
 import { chooseShot, makeRng } from './ai.js';
 import { rollRelease, applyRelease, describeRelease } from './release.js';
 import { TRACK, buildStaticSvg, buildDynamicSvg, weightReadout } from './track.js';
+import {
+  QUALITY_TIERS, FRAME_BUDGET_MS, SAMPLE_FRAMES, medianMs, decideTier, startingTier, parseTierParam,
+} from './perf.js';
 
 // Reaching this line means the whole module graph loaded. index.html watches for
 // it and, if it never happens, explains why on screen instead of leaving a black
@@ -49,8 +52,45 @@ const DEG = Math.PI / 180;
 
 /* ------------------------------------------------------------------ scene */
 const canvas = $('gl');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+
+/* ---------------------------------------------------------------- render quality
+ * perf.js holds the ladder and says what each rung is worth; this is the half that
+ * touches the GPU. Two facts shape it:
+ *
+ *   - The device's name is not evidence. A tablet is a phone with more pixels and a
+ *     smaller GPU, and the only honest reading of "can this keep up" is the interval
+ *     between frames. So the tier starts from a conservative guess and the frame
+ *     intervals may only ever walk it down.
+ *   - Multisampling cannot be part of that walk: it is a context flag, fixed before
+ *     the first frame exists. It is decided here, from the same pointer probe the
+ *     touch layer uses, because "is this a touchscreen" is one question in this file
+ *     and it has to be answered before the context is made either way.
+ */
+const POINTER_MEDIA = (() => { try { return matchMedia('(any-pointer: coarse)'); } catch (e) { return null; } })();
+const coarsePointer = () => !!(POINTER_MEDIA && POINTER_MEDIA.matches);
+
+const forcedTier = parseTierParam(location.search);
+const quality = {
+  tier: forcedTier !== null ? forcedTier : startingTier({
+    coarsePointer: coarsePointer(),
+    cores: navigator.hardwareConcurrency,
+    memoryGB: navigator.deviceMemory,
+    bufferPixels: innerWidth * (devicePixelRatio || 1) * innerHeight * (devicePixelRatio || 1),
+  }),
+  // A forced tier stays forced: `?tier=lean` is there so a player can compare two
+  // levels by hand on their own device, and a watchdog that moved it would take the
+  // comparison away.
+  forced: forcedTier !== null,
+};
+const frameMs = [];              // frame intervals, newest last, at most SAMPLE_FRAMES
+let lastFrameAt = 0, lastPerfPaint = 0;
+
+const renderer = new THREE.WebGLRenderer({
+  canvas,
+  // A touchscreen gets no MSAA; see the note above for why this is not a tier lever.
+  antialias: !coarsePointer(),
+  powerPreference: 'high-performance',
+});
 renderer.setSize(innerWidth, innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -68,7 +108,10 @@ camera.position.copy(camPos);
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
+  // Not setSize alone: the drawing buffer is sized by the pixel ratio too, and that
+  // ratio is capped by the tier - and a window can move to a monitor with a different
+  // devicePixelRatio, which is exactly when the cap matters again.
+  applyQuality();
 });
 
 /* ---------------------------------------------------------------- lights */
@@ -81,6 +124,11 @@ addEventListener('resize', () => {
 // (0.46, 0.57, 0.68) on purpose, so if the ice ever reads as a white floor in
 // the browser, lower these first rather than darkening the material — the
 // material values are the ones the asset tests check.
+//
+// The two point lights are kept where the quality ladder can reach them: light count
+// is per-fragment work on every material in the scene, so it is a lever. Changing it
+// recompiles the shaders once, at the tier change, never per frame.
+const sheetLamps = [];
 {
   const hemi = new THREE.HemisphereLight(0xdceaf6, 0x1a2634, 0.55);
   scene.add(hemi);
@@ -98,11 +146,147 @@ addEventListener('resize', () => {
     const p = new THREE.PointLight(0xdfeeff, 15, 26, 2.0);
     p.position.set(0, 6.4, z);
     scene.add(p);
+    sheetLamps.push(p);
   }
   // Stands are darker than the ice: a dim wash so the arena reads as a space.
   const stand = new THREE.DirectionalLight(0x22405f, 0.25);
   stand.position.set(0, 3, 30);
   scene.add(stand);
+}
+
+/* ------------------------------------------------------- the quality ladder
+ * This is the one place that writes anything to the renderer or the scene for the sake
+ * of frame rate; everything else asks perf.js which rung to be on, and perf.js keeps
+ * the walk one-way so nothing here can put the arena back.
+ *
+ * The lists below fill when assets arrive, because a renderer cannot switch off
+ * geometry it has not been given yet - which is why applyQuality() runs again after
+ * the asset load, and why it is written so that calling it twice changes nothing.
+ */
+const ARENA_DRESSING = /^(stand|crowd|banner|truss|lamp)[_.]/;   // the part names build_assets.py gives them
+const arenaDressing = [];
+const iceSurfaces = [];
+
+/**
+ * Remember the arena meshes the ladder may switch off. Matched by *name*, so the
+ * shipped GLB and the procedural stand-in are covered by one rule - a phone that
+ * could not load assets/ still gets the same saving. The boards, kicks, dashers and
+ * the rubber deck are not in it: ten meshes, and the cameras are written around them.
+ */
+function watchArena(root) {
+  root.traverse(o => { if (o.name && ARENA_DRESSING.test(o.name)) arenaDressing.push(o); });
+}
+
+/** Remember the ice's pebble normal map, so the lowest rung can take it away. */
+function watchIce(root) {
+  root.traverse(o => {
+    if (!o.material) return;
+    for (const m of (Array.isArray(o.material) ? o.material : [o.material])) {
+      if (m.normalMap && /pebble/i.test(m.normalMap.name || '') && !iceSurfaces.some(s => s.material === m)) {
+        iceSurfaces.push({ material: m, normalMap: m.normalMap });
+      }
+    }
+  });
+}
+
+function applyQuality() {
+  const t = QUALITY_TIERS[quality.tier];
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, t.pixelRatioCap));
+  renderer.setSize(innerWidth, innerHeight);
+  for (const o of arenaDressing) o.visible = t.dressing;
+  sheetLamps.forEach((l, i) => { l.visible = i < t.sheetLamps; });
+  for (const s of iceSurfaces) {
+    const want = t.pebbleNormal ? s.normalMap : null;
+    if (s.material.normalMap !== want) {
+      s.material.normalMap = want;
+      s.material.needsUpdate = true;     // one recompile at the change, not one per frame
+    }
+  }
+  paintPerf(true);
+}
+
+/**
+ * What the renderer is doing, in one call: for the corner readout, for the console,
+ * and for `window.__curlingPerf()` in a tablet's own console - which is the only way
+ * a device I have never held can tell me what it is worth.
+ */
+function perfSnapshot() {
+  const t = QUALITY_TIERS[quality.tier];
+  const med = medianMs(frameMs);
+  const gl = renderer.getContext();
+  return {
+    tier: quality.tier,
+    id: t.id,
+    forced: quality.forced,
+    pixelRatio: Math.round(renderer.getPixelRatio() * 100) / 100,
+    cap: t.pixelRatioCap,
+    devicePixelRatio: devicePixelRatio || 1,
+    buffer: `${Math.round(innerWidth * renderer.getPixelRatio())}x${Math.round(innerHeight * renderer.getPixelRatio())}`,
+    samples: gl ? gl.getParameter(gl.SAMPLES) : 0,
+    // What the context was *asked* for. A software rasteriser may report fewer
+    // samples than were requested, so the readout shows both: the request is the
+    // decision this file made, the count is what the driver chose to honour.
+    msaaRequested: !coarsePointer(),
+    dressingParts: arenaDressing.length,
+    // Not what the tier asks for, but what is actually true in the scene right now.
+    // The intent is in the tier table; these are the parts that carry it, so a test
+    // can hold the two against each other instead of trusting the table.
+    dressingVisible: arenaDressing.filter(o => o.visible).length,
+    lampsVisible: sheetLamps.filter(l => l.visible).length,
+    iceMaterials: iceSurfaces.length,
+    iceNormalApplied: iceSurfaces.length ? iceSurfaces.every(s => !!s.material.normalMap) : null,
+    msMedian: Math.round(med * 10) / 10,
+    fps: med > 0 ? Math.round(1000 / med) : 0,
+    drawCalls: renderer.info.render.calls,
+    triangles: renderer.info.render.triangles,
+    dressing: t.dressing,
+    iceNormalMap: t.pebbleNormal,
+    sheetLamps: t.sheetLamps,
+  };
+}
+window.__curlingPerf = perfSnapshot;
+
+function paintPerf(force) {
+  const el = hud.perf;
+  if (!el) return;
+  const now = performance.now();
+  if (!force && now - lastPerfPaint < 1000) return;      // a number that jitters every frame is unreadable
+  lastPerfPaint = now;
+  const p = perfSnapshot();
+  // Two short lines rather than one long one: the strip is bounded to 30vw so it can
+  // never grow into the handle row, and a single line would be cut mid-word at a phone
+  // width - which is what it looked like the first time this was measured on one.
+  const msaa = p.msaaRequested ? `msaa ${p.samples || '?'}` : 'msaa off';
+  el.textContent = `${p.id}${p.forced ? '*' : ''} ${p.pixelRatio.toFixed(2)}x · ${p.fps || '...'} fps\n` +
+    `${p.drawCalls} calls · ${msaa}`;
+}
+
+/**
+ * One frame interval per frame, from the timestamp requestAnimationFrame already
+ * hands the loop. It is the interval a player feels, not the renderer's own cost: a
+ * device holding vsync reports 16.7 ms and is left alone, and a phone sitting at
+ * 33 ms is not arguing with anything but its own frames.
+ */
+function sampleFrameRate(nowWall) {
+  if (lastFrameAt) {
+    const gap = nowWall - lastFrameAt;
+    // Over half a second is a restored tab or one long stall, not a frame rate. The
+    // median would shrug at it anyway, but it was never a measurement of frames.
+    if (gap > 0 && gap < 500) {
+      frameMs.push(gap);
+      if (frameMs.length > SAMPLE_FRAMES) frameMs.splice(0, frameMs.length - SAMPLE_FRAMES);
+    }
+  }
+  lastFrameAt = nowWall;
+
+  const next = quality.forced ? quality.tier : decideTier(frameMs, quality.tier);
+  if (next === quality.tier) { paintPerf(false); return; }
+  const measured = medianMs(frameMs);
+  console.info(`curling: median frame ${measured.toFixed(1)} ms over ${frameMs.length} frames, ` +
+    `past the ${FRAME_BUDGET_MS} ms budget - render tier ${QUALITY_TIERS[quality.tier].id} -> ${QUALITY_TIERS[next].id}`);
+  quality.tier = next;
+  frameMs.length = 0;              // the next decision is judged on frames drawn under the new tier
+  applyQuality();
 }
 
 /* ------------------------------------------------------- asset management */
@@ -338,28 +522,36 @@ function buildProceduralArena() {
     g.add(d);
   }
   // Stands: dark stepped blocks with a scattering of cold "crowd" speckles.
+  // Named as build_assets.py names the GLB's parts, because the quality ladder
+  // switches the dressing off by name: the phone that could not load assets/ must
+  // get the same saving as the one that did.
   const standMat = new THREE.MeshStandardMaterial({ color: 0x101d2b, roughness: 0.95 });
   for (const side of [-1, 1]) {
     for (let step = 0; step < 4; step++) {
       const h = 1.2 + step * 1.05, depth = 1.6;
       const s = new THREE.Mesh(new THREE.BoxGeometry(depth, h, SHEET.length * 0.92), standMat);
+      s.name = `stand_${side < 0 ? 'l' : 'r'}_${step}`;
       s.position.set(side * (half + 1.4 + depth * (step + 0.5)), h / 2, 0);
       g.add(s);
       const cc = new THREE.Mesh(new THREE.BoxGeometry(depth * 0.85, 0.5, SHEET.length * 0.9),
         new THREE.MeshStandardMaterial({ color: 0x1b2c3f, roughness: 1, emissive: 0x0a1622, emissiveIntensity: 0.6 }));
+      cc.name = `crowd_${side < 0 ? 'l' : 'r'}_${step}`;
       cc.position.set(side * (half + 1.4 + depth * (step + 0.5)), h + 0.28, 0);
       g.add(cc);
     }
   }
   // Banners behind both ends: the arena identity, kept dark and out of the way.
   for (const z of [-(SHEET.length / 2) - 1.6, (SHEET.length / 2) + 1.6]) {
+    const tag = z > 0 ? 'far' : 'near';
     const banner = new THREE.Mesh(new THREE.PlaneGeometry(SHEET.width + 3, 2.4),
       new THREE.MeshStandardMaterial({ color: 0x12365c, roughness: 0.85, side: THREE.DoubleSide }));
+    banner.name = `banner_${tag}`;
     banner.position.set(0, 1.6, z);
     banner.rotation.y = z > 0 ? Math.PI : 0;
     g.add(banner);
     const strip = new THREE.Mesh(new THREE.PlaneGeometry(SHEET.width + 3, 0.36),
       new THREE.MeshStandardMaterial({ color: 0x2f6fb8, emissive: 0x123a63, emissiveIntensity: 1.2, roughness: 0.6, side: THREE.DoubleSide }));
+    strip.name = `banner_strip_${tag}`;
     strip.position.set(0, 0.4, z + (z > 0 ? -0.01 : 0.01));
     strip.rotation.y = z > 0 ? Math.PI : 0;
     g.add(strip);
@@ -368,6 +560,7 @@ function buildProceduralArena() {
   const truss = new THREE.MeshStandardMaterial({ color: 0x131c26, roughness: 1 });
   for (let i = 0; i < 9; i++) {
     const t = new THREE.Mesh(new THREE.BoxGeometry(9, 0.18, 0.18), truss);
+    t.name = `truss_${i}`;
     t.position.set(0, 7.4, -18 + i * 4.5);
     g.add(t);
   }
@@ -780,8 +973,11 @@ function heldRepeat(key, cb, firstDelay = 0.28, rate = 0.055) {
 let drag = null, aimQueue = 0;
 // any-pointer, not pointer: a laptop with a touchscreen is a keyboard machine that
 // will also, at some point, be touched, and it should get the layer when it is.
-let touchMode = false;
-try { touchMode = matchMedia('(any-pointer: coarse)').matches; } catch (e) { touchMode = false; }
+// One probe for the whole file (POINTER_MEDIA, by the renderer): the same answer
+// decides which controls to draw *and* whether the WebGL context was asked for
+// multisampling, and two probes could disagree about a device halfway through a
+// page's life.
+let touchMode = coarsePointer();
 document.body.classList.toggle('touch', touchMode);
 function setTouchMode(on) {
   if (on === touchMode) return;
@@ -792,8 +988,7 @@ function setTouchMode(on) {
   if (!on) { keys.delete('space'); drag = null; aimQueue = 0; }
   promptHtml = '';
 }
-const TOUCH_MEDIA = (() => { try { return matchMedia('(any-pointer: coarse)'); } catch (e) { return null; } })();
-if (TOUCH_MEDIA) TOUCH_MEDIA.addEventListener('change', e => setTouchMode(e.matches));
+if (POINTER_MEDIA) POINTER_MEDIA.addEventListener('change', e => setTouchMode(e.matches));
 
 /**
  * A control that is held rather than pressed: down queues one edge and holds the
@@ -909,6 +1104,10 @@ const hud = {
   hammer: { A: $('hammerA'), B: $('hammerB') }, team: { A: $('teamA'), B: $('teamB') },
   callout: $('callout'), telemetry: $('telemetry'),
   prompt: $('prompt'),
+  // The render-tier readout. It is in the page always and *shown* only under
+  // .touch, because a corner number about frame rate is only honest on the class of
+  // device that has to be told; on a desktop there is a console.
+  perf: $('perf'),
   // The touch controls. They are in the page always and shown only under
   // .touch / (pointer: coarse); the keyboard path never goes through them.
   action: $('btnAction'), actionLabel: $('actionLabel'),
@@ -1663,6 +1862,7 @@ function frameLoop(nowWall) {
   const dt = Math.min(0.05, (nowWall - last) / 1000);
   last = nowWall;
   G.dt = dt; G.now = nowWall / 1000; G.frame++;
+  sampleFrameRate(nowWall);     // first thing: the interval between callbacks is the frame rate a player feels
 
   if (calloutTimer > 0) { calloutTimer -= dt; if (calloutTimer <= 0) hud.callout.classList.add('hidden'); }
 
@@ -1882,6 +2082,7 @@ function applyCPUPlan() {
 async function boot() {
   renderTitle();
   setCameraMode('title');
+  applyQuality();                 // the drawing buffer is sized before the first frame, not after it
   requestAnimationFrame(frameLoop);
 
   // Try the Blender-authored GLBs first; fall back to procedural stand-ins.
@@ -1914,6 +2115,10 @@ async function boot() {
     if (!obj) { obj = factory(); source = 'procedural'; }
     assets[name] = { source, obj };
     built[name] = true;
+    // Whatever arrived, GLB or stand-in, the quality ladder needs to know which of
+    // its parts are the arena dressing and which material is the ice.
+    if (name === 'arena') watchArena(obj);
+    if (name === 'sheet') watchIce(obj);
     if (name === 'sheet') placeSheet(obj);
     else if (name === 'arena') sheetGroup.add(obj);
     else if (name === 'hack') {
@@ -1922,6 +2127,10 @@ async function boot() {
     }
   }
   updateStoneRoots();
+  // The tier was chosen before any of this existed; now that the assets do, apply it
+  // to them. applyQuality() changes nothing about the tier - it only carries it onto
+  // the geometry, lights and materials that have arrived.
+  applyQuality();
 
   const used = Object.entries(assets).map(([k, v]) => `${k}:${v.source}`);
   hud.hint.textContent = 'assets: ' + used.join('  ');

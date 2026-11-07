@@ -299,6 +299,23 @@
   .sumline .note { color: var(--dim); }
   .counting { color: var(--good); }
   #hint { position: absolute; left: 12px; bottom: 12px; color: var(--dim); font-size: 11px; }
+  /* What the renderer is doing: the tier in force, the drawing-buffer ratio, the
+     frame rate it is measuring, and the draw calls that cost it. main.js writes the
+     text; this decides who sees it. Only a touchscreen sees it, because that is the
+     class of device that has a right to be told, and on a desktop there is a console.
+     The corner is the one the phone layout leaves free — under the instrument band,
+     clear of the thumb column — and the width is bounded so the text can never grow
+     into the handle row, which is why main.js writes it as two short lines instead of
+     one long one that would be cut mid-word. The device pass measures the strip
+     against every control on the screen and reads its text. */
+  #perf { display: none; }
+  body.touch #perf {
+    display: block; position: absolute; left: 10px; bottom: calc(10px + env(safe-area-inset-bottom));
+    max-width: 30vw; white-space: pre; overflow: hidden; pointer-events: none;
+    color: rgba(226,238,250,.62); background: rgba(4,8,14,.55);
+    font: 500 10px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+    letter-spacing: .02em; padding: 3px 6px; border-radius: 4px;
+  }
 </style>
 </head>
 <body>
@@ -332,6 +349,9 @@
 
   <div id="callout" class="hidden"></div>
   <div id="telemetry" class="hidden"></div>
+  <!-- Written by main.js, shown by CSS to touchscreens only: the tier, the pixel
+       ratio, the measured frame rate, the draw calls. -->
+  <div id="perf" aria-hidden="true"></div>
 
   <div id="meters">
     <div class="meter" id="powerBox">
